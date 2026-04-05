@@ -2,6 +2,7 @@
 using NINA.WPF.Base.ViewModel;
 using System.Collections.Generic;
 using System.Windows.Input;
+using System.Windows.Threading;
 
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 
@@ -10,18 +11,26 @@ namespace NINA.Plugin.TargetScheduler.Controls.DatabaseManager {
     public class DatabaseTreeViewVM : BaseVM {
         public bool ShowActiveInactive { get; private set; }
 
-        public DatabaseTreeViewVM(DatabaseManagerVM managerVM, IProfileService profileService, string name, List<TreeDataItem> rootList, int height, bool showActiveInactive = false) : base(profileService) {
+        public DatabaseTreeViewVM(DatabaseManagerVM managerVM, IProfileService profileService, string name, List<TreeDataItem> rootList, int height, bool showActiveInactive = false, TreeDisplayMode initialDisplayMode = TreeDisplayMode.DisplayAll, bool initialColorize = false) : base(profileService) {
             ParentVM = managerVM;
             RootList = rootList;
             Name = name;
             Height = height;
             ShowActiveInactive = showActiveInactive;
 
+            DisplayMode = initialDisplayMode;
+            ColorizeProjectsTargets = initialColorize;
+
             ExpandAllCommand = new RelayCommand(ExpandAll);
             CollapseAllCommand = new RelayCommand(CollapseAll);
             SwitchDisplayModeCommand = new RelayCommand(SwitchDisplayMode);
             SwitchColorizeModeCommand = new RelayCommand(SwitchColorizeMode);
             RefreshCommand = new RelayCommand(Refresh);
+
+            // Apply persisted view state to the tree
+            if (showActiveInactive) {
+                ParentVM.RestoreViewState();
+            }
         }
 
         public DatabaseManagerVM ParentVM { get; private set; }
@@ -100,8 +109,9 @@ namespace NINA.Plugin.TargetScheduler.Controls.DatabaseManager {
                 RootList = refreshed;
             }
 
-            DisplayMode = TreeDisplayMode.DisplayAll;
-            ColorizeProjectsTargets = false;
+            // Reapply current display/colorize modes to the refreshed tree
+            ParentVM.SetTreeDisplayMode(DisplayMode);
+            ParentVM.SetTreeColorizeMode(ColorizeProjectsTargets);
             Clipboard.Clear();
         }
     }

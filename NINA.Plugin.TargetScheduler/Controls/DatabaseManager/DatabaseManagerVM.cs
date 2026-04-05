@@ -55,7 +55,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.DatabaseManager {
             database = new SchedulerDatabaseInteraction();
 
             SelectedItemChangedCommand = new RelayCommandParam(SelectedItemChanged);
-            SelectedDisplayMode = TreeDisplayMode.DisplayAll;
+            LoadViewPreferences();
             InitializeProjectsColorize();
         }
 
@@ -64,7 +64,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.DatabaseManager {
         public int PanelHeight { get => 690; }
 
         public DatabaseTreeViewVM ProjectsTreeViewVM {
-            get => new DatabaseTreeViewVM(this, profileService, "Projects", RootProjectsList, 350, true);
+            get => new DatabaseTreeViewVM(this, profileService, "Projects", RootProjectsList, 350, true, SelectedDisplayMode, SelectedColorizeMode);
         }
 
         public DatabaseTreeViewVM ExposureTemplatesTreeViewVM {
@@ -266,6 +266,10 @@ namespace NINA.Plugin.TargetScheduler.Controls.DatabaseManager {
                             ProfileViewVM = new ProfileViewVM(this, profileService, item);
                             CollapseAllViews();
                             ShowProfileView = Visibility.Visible;
+                            ProfileMeta selectedProfile = item.Data as ProfileMeta;
+                            if (selectedProfile != null) {
+                                TrackExpandedProfile(selectedProfile.Id.ToString());
+                            }
                             break;
 
                         case TreeDataType.OrphanedProjects:
@@ -355,8 +359,6 @@ namespace NINA.Plugin.TargetScheduler.Controls.DatabaseManager {
         public List<TreeDataItem> Refresh(List<TreeDataItem> rootList) {
             if (rootList == RootProjectsList) {
                 RootProjectsList = LoadProjectsTree();
-                TreeDataItem.VisitAll(RootProjectsList[0], i => { i.IsExpanded = false; });
-                SelectedDisplayMode = TreeDisplayMode.DisplayAll;
                 return RootProjectsList;
             }
 
@@ -1041,6 +1043,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.DatabaseManager {
 
         internal void SetTreeDisplayMode(TreeDisplayMode displayMode) {
             SelectedDisplayMode = displayMode;
+            SaveViewPreferences();
 
             if (SelectedDisplayMode == TreeDisplayMode.DisplayAll) {
                 TreeDataItem.VisitAll(RootProjectsList[0], item => { item.Visibility = Visibility.Visible; });
@@ -1064,6 +1067,69 @@ namespace NINA.Plugin.TargetScheduler.Controls.DatabaseManager {
                         break;
                 }
             });
+        }
+
+        private string lastExpandedProfileId = "";
+
+        private void LoadViewPreferences() {
+            try {
+                using (var context = database.GetContext()) {
+                    ProfilePreference prefs = context.GetProfilePreference(profileService.ActiveProfile.Id.ToString());
+                    if (prefs != null) {
+                        SelectedColorizeMode = prefs.ColorizeProjects;
+                        SelectedDisplayMode = prefs.ShowActiveOnly ? TreeDisplayMode.DisplayActiveOnly : TreeDisplayMode.DisplayAll;
+                        lastExpandedProfileId = prefs.LastExpandedProfileId;
+                    }
+                }
+            } catch {
+                SelectedDisplayMode = TreeDisplayMode.DisplayAll;
+                SelectedColorizeMode = false;
+            }
+        }
+
+        private void SaveViewPreferences() {
+            try {
+                using (var context = database.GetContext()) {
+                    ProfilePreference prefs = context.GetProfilePreference(profileService.ActiveProfile.Id.ToString());
+                    if (prefs != null) {
+                        prefs.ColorizeProjects = SelectedColorizeMode;
+                        prefs.ShowActiveOnly = SelectedDisplayMode == TreeDisplayMode.DisplayActiveOnly;
+                        prefs.LastExpandedProfileId = lastExpandedProfileId;
+                        context.SaveProfilePreference(prefs);
+                    }
+                }
+            } catch { }
+        }
+
+        internal void TrackExpandedProfile(string profileId) {
+            lastExpandedProfileId = profileId ?? "";
+            SaveViewPreferences();
+        }
+
+        internal void RestoreViewState() {
+            string expandProfileId = !string.IsNullOrEmpty(lastExpandedProfileId)
+                ? lastExpandedProfileId
+                : profileService.ActiveProfile?.Id.ToString();
+
+            SetTreeDisplayMode(SelectedDisplayMode);
+            SetTreeColorizeMode(SelectedColorizeMode);
+
+            if (!string.IsNullOrEmpty(expandProfileId)) {
+                TreeDataItem.VisitAll(RootProjectsList[0], item => {
+                    if (item.Type == TreeDataType.ProjectProfile) {
+                        ProfileMeta profile = item.Data as ProfileMeta;
+                        if (profile != null && profile.Id.ToString() == expandProfileId) {
+                            if (item.TreeParent != null) {
+                                item.TreeParent.IsExpanded = true;
+                            }
+                            item.IsExpanded = true;
+                            foreach (TreeDataItem child in item.Items) {
+                                child.IsExpanded = true;
+                            }
+                        }
+                    }
+                });
+            }
         }
 
         private void InitializeProjectsColorize() {
@@ -1098,6 +1164,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.DatabaseManager {
             ExposureCompletionHelper helper = null;
             TextBlock textBlock = null;
             SelectedColorizeMode = colorize;
+            SaveViewPreferences();
 
             using (var context = database.GetContext()) {
                 TreeDataItem.VisitAll(RootProjectsList[0], item => {

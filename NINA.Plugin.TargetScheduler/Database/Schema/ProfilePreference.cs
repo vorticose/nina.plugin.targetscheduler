@@ -56,6 +56,10 @@ namespace NINA.Plugin.TargetScheduler.Database.Schema {
         public int apiPort { get; set; }
         public int apiPrettyPrint { get; set; }
 
+        public int colorizeProjects { get; set; }
+        public int showActiveOnly { get; set; }
+        public string lastExpandedProfileId { get; set; }
+
         public ProfilePreference() {
         }
 
@@ -102,6 +106,10 @@ namespace NINA.Plugin.TargetScheduler.Database.Schema {
             EnableAPI = false;
             APIPort = 8188;
             APIPrettyPrint = false;
+
+            ColorizeProjects = false;
+            ShowActiveOnly = false;
+            LastExpandedProfileId = "";
         }
 
         [NotMapped]
@@ -470,6 +478,36 @@ namespace NINA.Plugin.TargetScheduler.Database.Schema {
             set {
                 apiPrettyPrint = value ? 1 : 0;
                 RaisePropertyChanged(nameof(APIPrettyPrint));
+            }
+        }
+
+        [NotMapped]
+        [JsonProperty]
+        public bool ColorizeProjects {
+            get { return colorizeProjects == 1; }
+            set {
+                colorizeProjects = value ? 1 : 0;
+                RaisePropertyChanged(nameof(ColorizeProjects));
+            }
+        }
+
+        [NotMapped]
+        [JsonProperty]
+        public bool ShowActiveOnly {
+            get { return showActiveOnly == 1; }
+            set {
+                showActiveOnly = value ? 1 : 0;
+                RaisePropertyChanged(nameof(ShowActiveOnly));
+            }
+        }
+
+        [NotMapped]
+        [JsonProperty]
+        public string LastExpandedProfileId {
+            get { return lastExpandedProfileId ?? ""; }
+            set {
+                lastExpandedProfileId = value ?? "";
+                RaisePropertyChanged(nameof(LastExpandedProfileId));
             }
         }
 
