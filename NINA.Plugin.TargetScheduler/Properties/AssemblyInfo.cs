@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 [assembly: Guid("B4541BA9-7B07-4D71-B8E1-6C73D4933EA0")]
 [assembly: AssemblyTitle("Target Scheduler")]
-[assembly: AssemblyDescription("An automated target scheduler for NINA")]
+[assembly: AssemblyDescription("**CUSTOM FORK** An automated target scheduler for NINA")]
 [assembly: AssemblyCompany("Tom Palmer @tcpalmer")]
 [assembly: AssemblyProduct("Target Scheduler")]
 [assembly: AssemblyCopyright("Copyright © 2026")]
