@@ -244,6 +244,7 @@
                 <RowDefinition MinHeight="25" />
                 <RowDefinition MinHeight="25" />
                 <RowDefinition MinHeight="25" />
+                <RowDefinition MinHeight="25" />
             </Grid.RowDefinitions>
 
             <TextBlock
@@ -496,17 +497,40 @@
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 FontWeight="Bold"
+                Text="Maintain Exposure Ratio"
+                ToolTip="Prioritize whichever filter is furthest behind its target proportion based on desired exposure counts"
+                ToolTipService.ShowOnDisabled="True" />
+            <CheckBox
+                Grid.Row="9"
+                Grid.Column="1"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding Path=ProjectProxy.Project.MaintainExposureRatio, Mode=TwoWay}"
+                Visibility="{Binding ShowEditView, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+            <TextBlock
+                Grid.Row="9"
+                Grid.Column="1"
+                MaxHeight="20"
+                Margin="3,3,0,0"
+                Text="{Binding ProjectProxy.Project.MaintainExposureRatio}"
+                Visibility="{Binding ShowEditView, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}" />
+
+            <TextBlock
+                Grid.Row="10"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                FontWeight="Bold"
                 Text="Enable Image Grader"
                 ToolTip="Enable automatic grading of images to determine whether they are acceptable or not" />
             <CheckBox
-                Grid.Row="9"
+                Grid.Row="10"
                 Grid.Column="1"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 IsChecked="{Binding Path=ProjectProxy.Project.EnableGrader, Mode=TwoWay}"
                 Visibility="{Binding ShowEditView, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <TextBlock
-                Grid.Row="9"
+                Grid.Row="10"
                 Grid.Column="1"
                 MaxHeight="20"
                 Margin="3,3,0,0"
@@ -514,21 +538,21 @@
                 Visibility="{Binding ShowEditView, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
-                Grid.Row="10"
+                Grid.Row="11"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 FontWeight="Bold"
                 Text="Mosaic Project"
                 ToolTip="Set to true for mosaic projects" />
             <CheckBox
-                Grid.Row="10"
+                Grid.Row="11"
                 Grid.Column="1"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 IsChecked="{Binding Path=ProjectProxy.Project.IsMosaic, Mode=TwoWay}"
                 Visibility="{Binding ShowEditView, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <TextBlock
-                Grid.Row="10"
+                Grid.Row="11"
                 Grid.Column="1"
                 MaxHeight="20"
                 Margin="3,3,0,0"
@@ -536,21 +560,21 @@
                 Visibility="{Binding ShowEditView, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
-                Grid.Row="11"
+                Grid.Row="12"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 FontWeight="Bold"
                 Text="Flats Handling"
                 ToolTip="Flat frames cadence for project targets" />
             <ComboBox
-                Grid.Row="11"
+                Grid.Row="12"
                 Grid.Column="1"
                 MaxHeight="20"
                 ItemsSource="{Binding FlatsHandlingChoices}"
                 SelectedValue="{Binding ProjectProxy.Project.FlatsHandling, Mode=TwoWay, Converter={StaticResource FlatsHandlingChoicesConverter}}"
                 Visibility="{Binding ShowEditView, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <TextBlock
-                Grid.Row="11"
+                Grid.Row="12"
                 Grid.Column="1"
                 MaxHeight="20"
                 Margin="3,3,0,0"

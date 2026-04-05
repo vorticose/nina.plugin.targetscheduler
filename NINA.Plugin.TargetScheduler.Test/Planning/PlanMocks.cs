@@ -50,6 +50,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             pp.SetupProperty(m => m.FilterSwitchFrequency, 0);
             pp.SetupProperty(m => m.DitherEvery, 0);
             pp.SetupProperty(m => m.EnableGrader, false);
+            pp.SetupProperty(m => m.MaintainExposureRatio, false);
             pp.SetupProperty(m => m.IsMosaic, false);
             pp.SetupProperty(m => m.ExposureCompletionHelper, new ExposureCompletionHelper(false, 0, 125));
 
