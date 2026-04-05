@@ -5,12 +5,19 @@ using System.Linq;
 namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
     /// <summary>
-    /// Selects the exposure that is furthest behind its target ratio (Acquired/Desired).
+    /// Selects the exposure that is furthest behind its target ratio (Accepted/Desired).
+    /// Uses Acquired instead of Accepted when grading is delayed and the threshold has not been reached.
     /// Returns null if all candidates are within the dead band (roughly balanced),
     /// signaling the caller to fall back to its default selection behavior.
     /// </summary>
     public class ExposureRatioSelector {
         public const double DEAD_BAND = 0.05;
+
+        private ExposureCompletionHelper completionHelper;
+
+        public ExposureRatioSelector(ExposureCompletionHelper completionHelper) {
+            this.completionHelper = completionHelper;
+        }
 
         /// <summary>
         /// Select the exposure with the lowest completion ratio among the candidates.
@@ -47,9 +54,17 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
         /// <summary>
         /// Calculate the completion ratio for an exposure plan.
+        /// Uses Accepted/Desired normally, but falls back to Acquired/Desired when
+        /// grading is delayed and the delay threshold has not been reached yet.
         /// </summary>
-        public static double CompletionRatio(IExposure exposure) {
-            return exposure.Desired == 0 ? 1.0 : (double)exposure.Accepted / (double)exposure.Desired;
+        public double CompletionRatio(IExposure exposure) {
+            if (exposure.Desired == 0) return 1.0;
+
+            if (completionHelper != null && completionHelper.IsProvisionalPercentComplete(exposure)) {
+                return (double)exposure.Acquired / (double)exposure.Desired;
+            }
+
+            return (double)exposure.Accepted / (double)exposure.Desired;
         }
     }
 }

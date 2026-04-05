@@ -19,7 +19,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             FilterCadence = new FilterCadenceFactory().Generate(project, target, databaseTarget);
             DitherManager = GetDitherManager(project, target);
             if (project.MaintainExposureRatio) {
-                ExposureRatioSelector = new ExposureRatioSelector();
+                ExposureRatioSelector = new ExposureRatioSelector(project.ExposureCompletionHelper);
             }
         }
 

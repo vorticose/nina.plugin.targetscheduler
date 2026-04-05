@@ -21,7 +21,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("G", 10, 4));
             candidates.Add(MakeExposure("B", 10, 5));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             IExposure result = sut.Select(candidates);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("L");
@@ -37,7 +37,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("SII", 20, 14));
             candidates.Add(MakeExposure("OIII", 20, 5));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             IExposure result = sut.Select(candidates);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("OIII");
@@ -52,7 +52,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("G", 100, 52));
             candidates.Add(MakeExposure("B", 100, 48));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             sut.Select(candidates).Should().BeNull();
         }
 
@@ -63,7 +63,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("L", 1000, 500));
             candidates.Add(MakeExposure("B", 1000, 551));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             IExposure result = sut.Select(candidates);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("L");
@@ -76,7 +76,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("L", 1000, 500));
             candidates.Add(MakeExposure("B", 1000, 549));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             sut.Select(candidates).Should().BeNull();
         }
 
@@ -85,7 +85,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 20, 5));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             sut.Select(candidates).Should().BeNull();
         }
 
@@ -97,7 +97,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("L", 0, 0));
             candidates.Add(MakeExposure("R", 10, 0));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             sut.Select(candidates).Should().BeNull();
         }
 
@@ -112,7 +112,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("G", 10, 5));
             candidates.Add(MakeExposure("B", 10, 5));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             IExposure result = sut.Select(candidates);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("L");
@@ -127,7 +127,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("R", 10, 3));
             candidates.Add(MakeExposure("G", 10, 8));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             IExposure result = sut.Select(candidates);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("R");
@@ -135,17 +135,42 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
 
         [Test]
         public void testCompletionRatioCalculation() {
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
             IExposure zero = MakeExposure("L", 10, 0);
-            ExposureRatioSelector.CompletionRatio(zero).Should().BeApproximately(0.0, 0.0001);
+            sut.CompletionRatio(zero).Should().BeApproximately(0.0, 0.0001);
 
             IExposure half = MakeExposure("R", 10, 5);
-            ExposureRatioSelector.CompletionRatio(half).Should().BeApproximately(0.5, 0.0001);
+            sut.CompletionRatio(half).Should().BeApproximately(0.5, 0.0001);
 
             IExposure done = MakeExposure("G", 10, 10);
-            ExposureRatioSelector.CompletionRatio(done).Should().BeApproximately(1.0, 0.0001);
+            sut.CompletionRatio(done).Should().BeApproximately(1.0, 0.0001);
 
             IExposure noDesired = MakeExposure("B", 0, 0);
-            ExposureRatioSelector.CompletionRatio(noDesired).Should().BeApproximately(1.0, 0.0001);
+            sut.CompletionRatio(noDesired).Should().BeApproximately(1.0, 0.0001);
+        }
+
+        [Test]
+        public void testDelayedGradingUsesAcquired() {
+            // With delayed grading enabled (threshold 80%), before threshold is reached
+            // the ratio should use Acquired instead of Accepted
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(true, 80, 100));
+
+            List<IExposure> candidates = new List<IExposure>();
+            // L: 2 acquired out of 10 desired (20%), 0 accepted (below 80% threshold)
+            Mock<IExposure> lMock = PlanMocks.GetMockPlanExposure("L", 10, 0);
+            lMock.SetupProperty(m => m.Acquired, 2);
+            candidates.Add(lMock.Object);
+
+            // R: 5 acquired out of 10 desired (50%), 0 accepted (below 80% threshold)
+            Mock<IExposure> rMock = PlanMocks.GetMockPlanExposure("R", 10, 0);
+            rMock.SetupProperty(m => m.Acquired, 5);
+            candidates.Add(rMock.Object);
+
+            // Both have 0 accepted, but L has lower acquired ratio
+            IExposure result = sut.Select(candidates);
+            result.Should().NotBeNull();
+            result.FilterName.Should().Be("L");
         }
 
         [Test]
@@ -159,7 +184,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("G", 100, 50));
             candidates.Add(MakeExposure("B", 100, 20));
 
-            ExposureRatioSelector sut = new ExposureRatioSelector();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             IExposure result = sut.Select(candidates);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("B");

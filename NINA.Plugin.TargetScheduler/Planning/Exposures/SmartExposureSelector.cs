@@ -20,7 +20,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 SmartExposureRotateManager = new SmartExposureRotateManager(target, project.FilterSwitchFrequency);
             }
             if (project.MaintainExposureRatio) {
-                ExposureRatioSelector = new ExposureRatioSelector();
+                ExposureRatioSelector = new ExposureRatioSelector(project.ExposureCompletionHelper);
             }
         }
 
