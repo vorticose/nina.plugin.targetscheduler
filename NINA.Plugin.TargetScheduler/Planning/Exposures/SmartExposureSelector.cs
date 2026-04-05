@@ -12,11 +12,15 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
     /// </summary>
     public class SmartExposureSelector : BaseExposureSelector, IExposureSelector {
         private SmartExposureRotateManager SmartExposureRotateManager = null;
+        private ExposureRatioSelector ExposureRatioSelector = null;
 
         public SmartExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(target) {
             DitherManager = GetDitherManager(project, target);
             if (project.FilterSwitchFrequency > 0) {
                 SmartExposureRotateManager = new SmartExposureRotateManager(target, project.FilterSwitchFrequency);
+            }
+            if (project.MaintainExposureRatio) {
+                ExposureRatioSelector = new ExposureRatioSelector();
             }
         }
 
@@ -42,7 +46,16 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             if (SmartExposureRotateManager != null) {
                 List<IExposure> candidates = target.ExposurePlans.Where(ep => !ep.Rejected && EqualScore(selected.MoonAvoidanceScore, ep.MoonAvoidanceScore)).ToList();
                 if (candidates.Count > 1) {
-                    selected = SmartExposureRotateManager.Select(candidates);
+                    if (ExposureRatioSelector != null) {
+                        IExposure ratioSelected = ExposureRatioSelector.Select(candidates);
+                        if (ratioSelected != null) {
+                            selected = ratioSelected;
+                        } else {
+                            selected = SmartExposureRotateManager.Select(candidates);
+                        }
+                    } else {
+                        selected = SmartExposureRotateManager.Select(candidates);
+                    }
                 }
             }
 

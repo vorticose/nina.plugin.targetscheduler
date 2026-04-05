@@ -150,5 +150,11 @@ namespace Assistant.NINAPlugin.Database.Migrate {
                 return ResourceManager.GetString("5", resourceCulture);
             }
         }
+
+        internal static string _24 {
+            get {
+                return ResourceManager.GetString("24", resourceCulture);
+            }
+        }
     }
 }

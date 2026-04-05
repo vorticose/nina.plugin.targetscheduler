@@ -2,6 +2,8 @@
 using NINA.Plugin.TargetScheduler.Planning.Interfaces;
 using NINA.Plugin.TargetScheduler.Shared.Utility;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
@@ -10,10 +12,15 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
     /// exposure if appropriate.
     /// </summary>
     public class BasicExposureSelector : BaseExposureSelector, IExposureSelector {
+        private ExposureRatioSelector ExposureRatioSelector = null;
+        private bool lastSelectionByRatio = false;
 
         public BasicExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(target) {
             FilterCadence = new FilterCadenceFactory().Generate(project, target, databaseTarget);
             DitherManager = GetDitherManager(project, target);
+            if (project.MaintainExposureRatio) {
+                ExposureRatioSelector = new ExposureRatioSelector();
+            }
         }
 
         public IExposure Select(DateTime atTime, IProject project, ITarget target) {
@@ -21,6 +28,19 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 TSLogger.Warning($"unexpected: all exposure plans were rejected at exposure selection time for target '{target.Name}' at time {atTime}");
                 return null;
             }
+
+            // If ratio maintenance is enabled, try ratio-based selection first
+            if (ExposureRatioSelector != null) {
+                List<IExposure> candidates = target.ExposurePlans.Where(ep => !ep.Rejected).ToList();
+                IExposure ratioSelected = ExposureRatioSelector.Select(candidates);
+                if (ratioSelected != null) {
+                    ratioSelected.PreDither = DitherManager.DitherRequired(ratioSelected);
+                    lastSelectionByRatio = true;
+                    return ratioSelected;
+                }
+            }
+
+            lastSelectionByRatio = false;
 
             try {
                 foreach (IFilterCadenceItem item in FilterCadence) {
@@ -41,8 +61,10 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         public void ExposureTaken(IExposure exposure) {
-            FilterCadence.Advance();
-            UpdateFilterCadences(FilterCadence);
+            if (!lastSelectionByRatio) {
+                FilterCadence.Advance();
+                UpdateFilterCadences(FilterCadence);
+            }
 
             if (exposure.PreDither) DitherManager.Reset();
             DitherManager.AddExposure(exposure);
