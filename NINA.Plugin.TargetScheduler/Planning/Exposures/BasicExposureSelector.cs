@@ -34,9 +34,12 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 List<IExposure> candidates = target.ExposurePlans.Where(ep => !ep.Rejected).ToList();
                 IExposure ratioSelected = ExposureRatioSelector.Select(candidates);
                 if (ratioSelected != null) {
+                    TSLogger.Debug($"basic selector: ratio override selected {ratioSelected.FilterName} (skipping cadence)");
                     ratioSelected.PreDither = DitherManager.DitherRequired(ratioSelected);
                     lastSelectionByRatio = true;
                     return ratioSelected;
+                } else {
+                    TSLogger.Debug("basic selector: ratio within dead band, falling back to cadence");
                 }
             }
 

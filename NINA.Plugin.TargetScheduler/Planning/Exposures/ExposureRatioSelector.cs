@@ -1,6 +1,8 @@
 using NINA.Plugin.TargetScheduler.Planning.Interfaces;
+using NINA.Plugin.TargetScheduler.Shared.Utility;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
@@ -17,6 +19,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
         public ExposureRatioSelector(ExposureCompletionHelper completionHelper) {
             this.completionHelper = completionHelper;
+            TSLogger.Info("ExposureRatioSelector enabled (MaintainExposureRatio=true)");
         }
 
         /// <summary>
@@ -27,8 +30,13 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             List<IExposure> eligible = candidates.Where(e => !e.Rejected && e.Desired > 0).ToList();
 
             if (eligible.Count <= 1) {
+                TSLogger.Debug($"ratio selector: {eligible.Count} eligible candidate(s), skipping (need >1)");
                 return null;
             }
+
+            // Log all ratios for visibility
+            var sb = new StringBuilder();
+            sb.Append("ratio selector candidates: ");
 
             double minRatio = double.MaxValue;
             double maxRatio = double.MinValue;
@@ -36,6 +44,9 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
             foreach (IExposure exposure in eligible) {
                 double ratio = CompletionRatio(exposure);
+                bool isProvisional = completionHelper != null && completionHelper.IsProvisionalPercentComplete(exposure);
+                sb.Append($"{exposure.FilterName}={ratio:F3} ({exposure.Accepted}a/{exposure.Acquired}q/{exposure.Desired}d{(isProvisional ? " provisional" : "")}), ");
+
                 if (ratio < minRatio) {
                     minRatio = ratio;
                     mostBehind = exposure;
@@ -45,10 +56,16 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 }
             }
 
-            if (maxRatio - minRatio < DEAD_BAND) {
+            double spread = maxRatio - minRatio;
+            sb.Append($"spread={spread:F3}, deadBand={DEAD_BAND}");
+            TSLogger.Debug(sb.ToString());
+
+            if (spread < DEAD_BAND) {
+                TSLogger.Debug($"ratio selector: within dead band ({spread:F3} < {DEAD_BAND}), deferring to default selector");
                 return null;
             }
 
+            TSLogger.Info($"ratio selector: {mostBehind.FilterName} is most behind (ratio={minRatio:F3}), prioritizing over default selection");
             return mostBehind;
         }
 

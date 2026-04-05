@@ -49,9 +49,11 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                     if (ExposureRatioSelector != null) {
                         IExposure ratioSelected = ExposureRatioSelector.Select(candidates);
                         if (ratioSelected != null) {
+                            TSLogger.Debug($"smart selector: ratio override selected {ratioSelected.FilterName} (over {candidates.Count} tied candidates)");
                             selected = ratioSelected;
                         } else {
                             selected = SmartExposureRotateManager.Select(candidates);
+                            TSLogger.Debug($"smart selector: ratio within dead band, falling back to rotation -> {selected?.FilterName}");
                         }
                     } else {
                         selected = SmartExposureRotateManager.Select(candidates);
