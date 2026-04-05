@@ -221,10 +221,10 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             SetAllScores(pt.Object.ExposurePlans, 0.5);
 
             // L is behind: 0/10 = 0%, R = 5/10 = 50%, G = 5/10 = 50%, B = 5/10 = 50%
-            pt.Object.ExposurePlans[0].Acquired = 0;  // L
-            pt.Object.ExposurePlans[1].Acquired = 5;  // R
-            pt.Object.ExposurePlans[2].Acquired = 5;  // G
-            pt.Object.ExposurePlans[3].Acquired = 5;  // B
+            pt.Object.ExposurePlans[0].Accepted = 0;  // L
+            pt.Object.ExposurePlans[1].Accepted = 5;  // R
+            pt.Object.ExposurePlans[2].Accepted = 5;  // G
+            pt.Object.ExposurePlans[3].Accepted = 5;  // B
 
             SmartExposureSelector sut = new SmartExposureSelector(pp.Object, pt.Object, new Target());
             pt.SetupProperty(t => t.ExposureSelector, sut);
@@ -250,11 +250,11 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
 
             SetAllScores(pt.Object.ExposurePlans, 0.5);
 
-            // All within dead band: 50%, 51%, 52%, 53%
-            pt.Object.ExposurePlans[0].Acquired = 5;  // L 50%
-            pt.Object.ExposurePlans[1].Acquired = 5;  // R 50%
-            pt.Object.ExposurePlans[2].Acquired = 5;  // G 50%
-            pt.Object.ExposurePlans[3].Acquired = 5;  // B 50%
+            // All within dead band: all at 50%
+            pt.Object.ExposurePlans[0].Accepted = 5;  // L 50%
+            pt.Object.ExposurePlans[1].Accepted = 5;  // R 50%
+            pt.Object.ExposurePlans[2].Accepted = 5;  // G 50%
+            pt.Object.ExposurePlans[3].Accepted = 5;  // B 50%
 
             SmartExposureSelector sut = new SmartExposureSelector(pp.Object, pt.Object, new Target());
             pt.SetupProperty(t => t.ExposureSelector, sut);
@@ -286,10 +286,10 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             pt.Object.ExposurePlans[3].MoonAvoidanceScore = 0.5;  // B
 
             // L is most behind but has low moon score
-            pt.Object.ExposurePlans[0].Acquired = 0;  // L 0%
-            pt.Object.ExposurePlans[1].Acquired = 5;  // R 50%
-            pt.Object.ExposurePlans[2].Acquired = 5;  // G 50%
-            pt.Object.ExposurePlans[3].Acquired = 0;  // B 0%
+            pt.Object.ExposurePlans[0].Accepted = 0;  // L 0%
+            pt.Object.ExposurePlans[1].Accepted = 5;  // R 50%
+            pt.Object.ExposurePlans[2].Accepted = 5;  // G 50%
+            pt.Object.ExposurePlans[3].Accepted = 0;  // B 0%
 
             SmartExposureSelector sut = new SmartExposureSelector(pp.Object, pt.Object, new Target());
             pt.SetupProperty(t => t.ExposureSelector, sut);
@@ -315,10 +315,10 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             SetAllScores(pt.Object.ExposurePlans, 0.5);
 
             // L is way behind but ratio is disabled
-            pt.Object.ExposurePlans[0].Acquired = 0;  // L 0%
-            pt.Object.ExposurePlans[1].Acquired = 5;  // R 50%
-            pt.Object.ExposurePlans[2].Acquired = 5;  // G 50%
-            pt.Object.ExposurePlans[3].Acquired = 5;  // B 50%
+            pt.Object.ExposurePlans[0].Accepted = 0;  // L 0%
+            pt.Object.ExposurePlans[1].Accepted = 5;  // R 50%
+            pt.Object.ExposurePlans[2].Accepted = 5;  // G 50%
+            pt.Object.ExposurePlans[3].Accepted = 5;  // B 50%
 
             SmartExposureSelector sut = new SmartExposureSelector(pp.Object, pt.Object, new Target());
             pt.SetupProperty(t => t.ExposureSelector, sut);

@@ -98,7 +98,6 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("R", 10, 0));
 
             ExposureRatioSelector sut = new ExposureRatioSelector();
-            // L is filtered out (Desired=0), leaving only R -> single candidate -> null
             sut.Select(candidates).Should().BeNull();
         }
 
@@ -139,12 +138,10 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             IExposure zero = MakeExposure("L", 10, 0);
             ExposureRatioSelector.CompletionRatio(zero).Should().BeApproximately(0.0, 0.0001);
 
-            IExposure half = MakeExposure("R", 10, 0);
-            half.Acquired = 5;
+            IExposure half = MakeExposure("R", 10, 5);
             ExposureRatioSelector.CompletionRatio(half).Should().BeApproximately(0.5, 0.0001);
 
-            IExposure done = MakeExposure("G", 10, 0);
-            done.Acquired = 10;
+            IExposure done = MakeExposure("G", 10, 10);
             ExposureRatioSelector.CompletionRatio(done).Should().BeApproximately(1.0, 0.0001);
 
             IExposure noDesired = MakeExposure("B", 0, 0);
@@ -153,14 +150,14 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
 
         [Test]
         public void testUnequalDesiredCountsRatio() {
-            // L=300 desired, 150 acquired (50%), R=100 desired, 50 acquired (50%),
-            // G=100 desired, 50 acquired (50%), B=100 desired, 20 acquired (20%)
+            // L=300 desired, 150 accepted (50%), R=100 desired, 50 accepted (50%),
+            // G=100 desired, 50 accepted (50%), B=100 desired, 20 accepted (20%)
             // B is most behind at 20%, should be selected
             List<IExposure> candidates = new List<IExposure>();
-            candidates.Add(MakeExposure("L", 300, 0, 150));
-            candidates.Add(MakeExposure("R", 100, 0, 50));
-            candidates.Add(MakeExposure("G", 100, 0, 50));
-            candidates.Add(MakeExposure("B", 100, 0, 20));
+            candidates.Add(MakeExposure("L", 300, 150));
+            candidates.Add(MakeExposure("R", 100, 50));
+            candidates.Add(MakeExposure("G", 100, 50));
+            candidates.Add(MakeExposure("B", 100, 20));
 
             ExposureRatioSelector sut = new ExposureRatioSelector();
             IExposure result = sut.Select(candidates);
@@ -168,13 +165,12 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             result.FilterName.Should().Be("B");
         }
 
-        private IExposure MakeExposure(string filterName, int desired, int acquired) {
-            return MakeExposure(filterName, desired, 0, acquired);
-        }
-
-        private IExposure MakeExposure(string filterName, int desired, int accepted, int acquired) {
+        /// <summary>
+        /// Creates a mock exposure with the given accepted count for ratio testing.
+        /// The ratio calculation uses Accepted/Desired.
+        /// </summary>
+        private IExposure MakeExposure(string filterName, int desired, int accepted) {
             Mock<IExposure> pe = PlanMocks.GetMockPlanExposure(filterName, desired, accepted);
-            pe.SetupProperty(m => m.Acquired, acquired);
             return pe.Object;
         }
     }

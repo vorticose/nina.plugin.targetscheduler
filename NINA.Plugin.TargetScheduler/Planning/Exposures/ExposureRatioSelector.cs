@@ -49,7 +49,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         /// Calculate the completion ratio for an exposure plan.
         /// </summary>
         public static double CompletionRatio(IExposure exposure) {
-            return exposure.Desired == 0 ? 1.0 : (double)exposure.Acquired / (double)exposure.Desired;
+            return exposure.Desired == 0 ? 1.0 : (double)exposure.Accepted / (double)exposure.Desired;
         }
     }
 }

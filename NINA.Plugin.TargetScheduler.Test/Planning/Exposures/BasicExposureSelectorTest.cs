@@ -184,10 +184,10 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             SetEPs(pt);
 
             // B is behind: L=5/10=50%, R=5/10=50%, G=5/10=50%, B=0/10=0%
-            pt.Object.ExposurePlans[0].Acquired = 5;  // L
-            pt.Object.ExposurePlans[1].Acquired = 5;  // R
-            pt.Object.ExposurePlans[2].Acquired = 5;  // G
-            pt.Object.ExposurePlans[3].Acquired = 0;  // B
+            pt.Object.ExposurePlans[0].Accepted = 5;  // L
+            pt.Object.ExposurePlans[1].Accepted = 5;  // R
+            pt.Object.ExposurePlans[2].Accepted = 5;  // G
+            pt.Object.ExposurePlans[3].Accepted = 0;  // B
 
             BasicExposureSelector sut = new BasicExposureSelector(pp.Object, pt.Object, new Target());
             pt.SetupProperty(t => t.ExposureSelector, sut);
@@ -211,10 +211,10 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             SetEPs(pt);
 
             // All equal: 50%
-            pt.Object.ExposurePlans[0].Acquired = 5;
-            pt.Object.ExposurePlans[1].Acquired = 5;
-            pt.Object.ExposurePlans[2].Acquired = 5;
-            pt.Object.ExposurePlans[3].Acquired = 5;
+            pt.Object.ExposurePlans[0].Accepted = 5;
+            pt.Object.ExposurePlans[1].Accepted = 5;
+            pt.Object.ExposurePlans[2].Accepted = 5;
+            pt.Object.ExposurePlans[3].Accepted = 5;
 
             BasicExposureSelector sut = new BasicExposureSelector(pp.Object, pt.Object, new Target());
             pt.SetupProperty(t => t.ExposureSelector, sut);
@@ -238,10 +238,10 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             SetEPs(pt);
 
             // B is behind but ratio is disabled
-            pt.Object.ExposurePlans[0].Acquired = 5;
-            pt.Object.ExposurePlans[1].Acquired = 5;
-            pt.Object.ExposurePlans[2].Acquired = 5;
-            pt.Object.ExposurePlans[3].Acquired = 0;
+            pt.Object.ExposurePlans[0].Accepted = 5;
+            pt.Object.ExposurePlans[1].Accepted = 5;
+            pt.Object.ExposurePlans[2].Accepted = 5;
+            pt.Object.ExposurePlans[3].Accepted = 0;
 
             BasicExposureSelector sut = new BasicExposureSelector(pp.Object, pt.Object, new Target());
             pt.SetupProperty(t => t.ExposureSelector, sut);
