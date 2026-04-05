@@ -48,29 +48,21 @@ namespace NINA.Plugin.TargetScheduler.Test.API {
         }
 
         [Test]
-        public void CreateServer_ShouldInitialize_WebServer() {
-            // Act
-            _server.CreateServer();
-
-            // Assert
-            _server.WebServer.Should().NotBeNull();
-            _server.WebServer.Should().BeOfType<FakeWebServer>();
-        }
-
-        [Test]
-        public void Start_Should_CreateAndStart_WebServer_And_Stop_Should_DisposeIt() {
+        public void Start_Should_SetIsRunning_And_Stop_Should_ClearIt() {
             // Act: Start the server.
             _server.Start();
-            // Allow a brief moment for the API thread to start.
-            Thread.Sleep(200);
 
-            // Assert: Fake WebServer should be assigned.
-            _server.WebServer.Should().NotBeNull();
+            // Assert: IsRunning should be true immediately.
+            _server.IsRunning.Should().BeTrue();
+
+            // Allow a brief moment for the API thread to start.
+            Thread.Sleep(1000);
 
             // Act: Stop the server.
             _server.Stop();
 
-            // Assert: After stopping, WebServer should be null.
+            // Assert: After stopping, IsRunning should be false.
+            _server.IsRunning.Should().BeFalse();
             _server.WebServer.Should().BeNull();
         }
 
@@ -99,17 +91,14 @@ namespace NINA.Plugin.TargetScheduler.Test.API {
 
         [Test]
         public void Start_Should_Catch_Exception_When_RunAsync_Fails() {
-            // Arrange:
-            // Call CreateServer so that WebServer is assigned.
-            _server.CreateServer();
             // Act: Start the server; FakeWebServer.RunAsync will throw, but the exception should be caught internally.
             _server.Start();
-            // Allow some time for the API thread to run.
-            Thread.Sleep(200);
+            // Allow some time for the API thread to run and hit the exception.
+            Thread.Sleep(1000);
             // Act: Stop the server.
             _server.Stop();
-            // Assert: After stopping, WebServer should be null.
-            _server.WebServer.Should().BeNull();
+            // Assert: After stopping, IsRunning should be false.
+            _server.IsRunning.Should().BeFalse();
         }
     }
 

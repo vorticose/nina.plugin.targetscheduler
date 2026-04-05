@@ -4,6 +4,7 @@ using NINA.Plugin.TargetScheduler.Database;
 using NINA.Plugin.TargetScheduler.Shared.Utility;
 using NINA.Profile.Interfaces;
 using System;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -19,6 +20,7 @@ namespace NINA.Plugin.TargetScheduler.API {
 
         private Thread serverThread;
         private CancellationTokenSource apiToken;
+        private bool started;
         public readonly int Port;
         private readonly ISchedulerDatabaseInteraction database;
         private readonly IProfileService profileService;
@@ -52,53 +54,71 @@ namespace NINA.Plugin.TargetScheduler.API {
             return new APIController(database, profileService);
         }
 
-        public void CreateServer() {
-            WebServer = webServerFactory();
-        }
-
         public void Start() {
             try {
-                TSLogger.Trace("creating embedio server");
-                CreateServer();
-                TSLogger.Trace("starting embedio server");
-                if (WebServer != null) {
-                    serverThread = new Thread(() => APITask(WebServer));
-                    serverThread.Name = "Target Scheduler API Thread";
-                    serverThread.SetApartmentState(ApartmentState.STA);
-                    serverThread.Start();
-                }
-
-                Notification.ShowInformation($"Target Scheduler API started: http://localhost:{Port}/ts/{API_VERSION}/...");
+                started = true;
+                serverThread = new Thread(() => APITask());
+                serverThread.Name = "Target Scheduler API Thread";
+                serverThread.SetApartmentState(ApartmentState.STA);
+                serverThread.Start();
             } catch (Exception e) {
-                TSLogger.Error($"failed to start embedio server: {e}");
+                started = false;
+                TSLogger.Error($"failed to start API server thread: {e}");
             }
         }
 
+        public bool IsRunning => started;
+
         public void Stop() {
             try {
+                started = false;
+                if (WebServer == null) return;
                 TSLogger.Debug("stopping embedio server");
                 apiToken?.Cancel();
                 WebServer?.Dispose();
                 WebServer = null;
-                Thread.Sleep(200);
-                Notification.ShowInformation($"Target Scheduler API stopped");
+                serverThread = null;
             } catch (Exception e) {
                 TSLogger.Error($"failed to stop embedio server: {e}");
             }
         }
 
         [STAThread]
-        private void APITask(WebServer server) {
-            TSLogger.Info($"starting embedio server for TS API, listening on port {Port}");
+        private void APITask() {
+            const int maxWaitSeconds = 30;
+            var sw = Stopwatch.StartNew();
 
-            try {
-                apiToken = new CancellationTokenSource();
-                server.RunAsync(apiToken.Token).Wait();
-            } catch (Exception e) {
-                TSLogger.Error($"failed to start embedio server: {e}");
-                Notification.ShowError($"Failed to start Target Scheduler API server, see Target Scheduler log for details");
-                TSLogger.Debug("aborting web server thread");
+            while (sw.Elapsed.TotalSeconds < maxWaitSeconds) {
+                TSLogger.Info($"starting embedio server for TS API on port {Port} ({sw.Elapsed.TotalSeconds:F0}s elapsed)");
+
+                try {
+                    WebServer = webServerFactory();
+                    apiToken = new CancellationTokenSource();
+                    var task = WebServer.RunAsync(apiToken.Token);
+                    Thread.Sleep(500);
+
+                    if (task.IsFaulted) {
+                        throw task.Exception.InnerException ?? task.Exception;
+                    }
+
+                    Notification.ShowInformation($"Target Scheduler API started: http://localhost:{Port}/ts/{API_VERSION}/...");
+                    task.Wait();
+                    return;
+                } catch (Exception e) {
+                    if (apiToken != null && apiToken.IsCancellationRequested) {
+                        return;
+                    }
+
+                    TSLogger.Debug($"API server start failed ({e.Message}), retrying in 2s...");
+
+                    try { WebServer?.Dispose(); } catch { }
+                    WebServer = null;
+                    Thread.Sleep(2000);
+                }
             }
+
+            TSLogger.Error($"failed to start API server on port {Port} after {maxWaitSeconds}s");
+            Notification.ShowError($"Failed to start Target Scheduler API server on port {Port}");
         }
     }
 

@@ -40,6 +40,7 @@ namespace NINA.Plugin.TargetScheduler {
         public static readonly ImagePattern ProjectNameImagePattern = new ImagePattern("$$TSPROJECTNAME$$", "TS project name (if available)", "Target Scheduler");
 
         private static APIServer APIServer;
+        private static readonly object apiServerLock = new object();
 
         private IProfileService profileService;
         private IApplicationMediator applicationMediator;
@@ -80,11 +81,7 @@ namespace NINA.Plugin.TargetScheduler {
                 SyncManager.Instance.Start(profileService);
             }
 
-            (bool apiEnabled, int apiPort, bool prettyPrint) = APIPrefs(profileService);
-            if (apiEnabled) {
-                APIServer = new APIServer(apiPort, prettyPrint, profileService, new SchedulerDatabaseInteraction());
-                APIServer.Start();
-            }
+            EnsureAPIServer(profileService);
 
             TSLogger.Info("plugin initialized");
             return Task.CompletedTask;
@@ -109,16 +106,33 @@ namespace NINA.Plugin.TargetScheduler {
         }
 
         public static void StartAPIServer(IProfileService profileService) {
-            APIServer?.Stop();
-
-            (bool apiEnabled, int apiPort, bool prettyPrint) = APIPrefs(profileService);
-            APIServer = new APIServer(apiPort, prettyPrint, profileService, new SchedulerDatabaseInteraction());
-            APIServer.Start();
+            EnsureAPIServer(profileService, forceRestart: true);
         }
 
         public static void StopAPIServer() {
-            APIServer?.Stop();
-            APIServer = null;
+            lock (apiServerLock) {
+                APIServer?.Stop();
+                APIServer = null;
+            }
+        }
+
+        private static void EnsureAPIServer(IProfileService profileService, bool forceRestart = false) {
+            lock (apiServerLock) {
+                (bool apiEnabled, int apiPort, bool prettyPrint) = APIPrefs(profileService);
+                if (apiEnabled) {
+                    if (!forceRestart && APIServer != null && APIServer.IsRunning && APIServer.Port == apiPort) {
+                        TSLogger.Debug("API server already running on correct port, skipping start");
+                        return;
+                    }
+
+                    APIServer?.Stop();
+                    APIServer = new APIServer(apiPort, prettyPrint, profileService, new SchedulerDatabaseInteraction());
+                    APIServer.Start();
+                } else {
+                    APIServer?.Stop();
+                    APIServer = null;
+                }
+            }
         }
 
         private LogLevelEnum ProfileLogLevel(IProfileService profileService) {
@@ -260,13 +274,7 @@ namespace NINA.Plugin.TargetScheduler {
                     }
                 }
 
-                APIServer?.Stop();
-                APIServer = null;
-                (bool apiEnabled, int apiPort, bool prettyPrint) = APIPrefs(profileService);
-                if (apiEnabled) {
-                    APIServer = new APIServer(apiPort, prettyPrint, profileService, new SchedulerDatabaseInteraction());
-                    APIServer.Start();
-                }
+                EnsureAPIServer(profileService);
             }
         }
     }
