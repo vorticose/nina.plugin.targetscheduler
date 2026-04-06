@@ -19,7 +19,6 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
         public ExposureRatioSelector(ExposureCompletionHelper completionHelper) {
             this.completionHelper = completionHelper;
-            TSLogger.Info("ExposureRatioSelector enabled (MaintainExposureRatio=true)");
         }
 
         /// <summary>
@@ -71,13 +70,14 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
         /// <summary>
         /// Calculate the completion ratio for an exposure plan.
-        /// Uses Accepted/Desired normally, but falls back to Acquired/Desired when
-        /// grading is delayed and the delay threshold has not been reached yet.
+        /// Uses Acquired/Desired when grading is disabled or when grading is delayed
+        /// and the threshold has not been reached yet. Uses Accepted/Desired otherwise.
         /// </summary>
         public double CompletionRatio(IExposure exposure) {
             if (exposure.Desired == 0) return 1.0;
 
-            if (completionHelper != null && completionHelper.IsProvisionalPercentComplete(exposure)) {
+            if (completionHelper != null &&
+                (!completionHelper.ImageGradingEnabled || completionHelper.IsProvisionalPercentComplete(exposure))) {
                 return (double)exposure.Acquired / (double)exposure.Desired;
             }
 

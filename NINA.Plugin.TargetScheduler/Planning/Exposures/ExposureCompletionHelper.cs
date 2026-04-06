@@ -10,6 +10,8 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         private double delayGrading;
         private double exposureThrottle;
 
+        public bool ImageGradingEnabled => imageGradingEnabled;
+
         public ExposureCompletionHelper(bool imageGradingEnabled, double delayGrading, double exposureThrottle) {
             this.imageGradingEnabled = imageGradingEnabled;
             this.delayGrading = delayGrading;

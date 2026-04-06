@@ -174,6 +174,46 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         }
 
         [Test]
+        public void testGradingDisabledUsesAcquired() {
+            // With grading disabled, CompletionRatio should use Acquired/Desired, not Accepted/Desired
+            // L: Acquired=2, Accepted=10, Desired=20 -> ratio should be 2/20=0.10 (not 10/20=0.50)
+            // R: Acquired=8, Accepted=1, Desired=20 -> ratio should be 8/20=0.40 (not 1/20=0.05)
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            IExposure l = MakeExposure("L", 20, 10, acquired: 2);
+            sut.CompletionRatio(l).Should().BeApproximately(0.10, 0.0001);
+
+            IExposure r = MakeExposure("R", 20, 1, acquired: 8);
+            sut.CompletionRatio(r).Should().BeApproximately(0.40, 0.0001);
+
+            // In a selection, L (0.10) should be selected over R (0.40)
+            List<IExposure> candidates = new List<IExposure> { l, r };
+            IExposure result = sut.Select(candidates);
+            result.Should().NotBeNull();
+            result.FilterName.Should().Be("L");
+        }
+
+        [Test]
+        public void testGradingEnabledUsesAccepted() {
+            // With grading enabled (no delay), CompletionRatio should use Accepted/Desired
+            // L: Acquired=10, Accepted=2, Desired=20 -> ratio should be 2/20=0.10
+            // R: Acquired=1, Accepted=8, Desired=20 -> ratio should be 8/20=0.40
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(true, 0, 100));
+
+            IExposure l = MakeExposure("L", 20, 2, acquired: 10);
+            sut.CompletionRatio(l).Should().BeApproximately(0.10, 0.0001);
+
+            IExposure r = MakeExposure("R", 20, 8, acquired: 1);
+            sut.CompletionRatio(r).Should().BeApproximately(0.40, 0.0001);
+
+            // In a selection, L (0.10) should be selected over R (0.40)
+            List<IExposure> candidates = new List<IExposure> { l, r };
+            IExposure result = sut.Select(candidates);
+            result.Should().NotBeNull();
+            result.FilterName.Should().Be("L");
+        }
+
+        [Test]
         public void testUnequalDesiredCountsRatio() {
             // L=300 desired, 150 accepted (50%), R=100 desired, 50 accepted (50%),
             // G=100 desired, 50 accepted (50%), B=100 desired, 20 accepted (20%)
@@ -191,11 +231,12 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         }
 
         /// <summary>
-        /// Creates a mock exposure with the given accepted count for ratio testing.
-        /// The ratio calculation uses Accepted/Desired.
+        /// Creates a mock exposure for ratio testing.
+        /// Sets both Acquired and Accepted so the ratio works regardless of grading mode.
         /// </summary>
-        private IExposure MakeExposure(string filterName, int desired, int accepted) {
+        private IExposure MakeExposure(string filterName, int desired, int accepted, int acquired = -1) {
             Mock<IExposure> pe = PlanMocks.GetMockPlanExposure(filterName, desired, accepted);
+            pe.SetupProperty(m => m.Acquired, acquired >= 0 ? acquired : accepted);
             return pe.Object;
         }
     }
