@@ -10,20 +10,17 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
     /// <summary>
     /// Maintains proportional filter balance using three modes:
     ///
-    /// 1. CATCH-UP: when spread exceeds DEAD_BAND (5%) or filters haven't converged
-    ///    to their ideal allocation, forces the most-behind filter.
+    /// 1. CATCH-UP: when any filter's frame deficit exceeds the catch-up threshold,
+    ///    forces the most-behind filter. The threshold is derived from the weighted
+    ///    rotation cycle length, so normal rotation drift doesn't trigger catch-up.
     ///
     /// 2. WEIGHTED ROTATION: when balanced, rotates proportional to desired counts
     ///    (e.g. L,L,L,R,G,B for 3:1:1:1 ratio) instead of equal round-robin.
     ///
     /// 3. DEFER: returns null for single candidates or equal desired counts,
     ///    letting the stock SmartExposureRotateManager handle selection.
-    ///
-    /// Uses stateless hysteresis: the 5% threshold triggers catch-up, but catch-up
-    /// continues until all filters are within 1 frame of their ideal allocation.
     /// </summary>
     public class ExposureRatioSelector {
-        public const double DEAD_BAND = 0.05;
         private const int MAX_CYCLE_LENGTH = 50;
 
         private ExposureCompletionHelper completionHelper;
@@ -35,7 +32,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         /// <summary>
-        /// Select the next exposure using hysteresis catch-up or weighted rotation.
+        /// Select the next exposure using frame-deficit catch-up or weighted rotation.
         /// Returns null only for degenerate cases (0-1 candidates) or when all
         /// candidates have equal desired counts and are balanced.
         /// </summary>
@@ -47,35 +44,56 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 return null;
             }
 
-            // Calculate ratios and find most-behind filter
+            // Calculate ratios, frame deficits, and find most-behind filter
             var sb = new StringBuilder();
             sb.Append("ratio selector candidates: ");
 
+            int totalFrames = 0;
+            int totalDesired = 0;
             double minRatio = double.MaxValue;
             double maxRatio = double.MinValue;
             IExposure mostBehind = null;
+            double worstDeficit = double.MinValue;
+
+            foreach (IExposure exposure in eligible) {
+                totalFrames += CompletionCount(exposure);
+                totalDesired += exposure.Desired;
+            }
 
             foreach (IExposure exposure in eligible) {
                 double ratio = CompletionRatio(exposure);
+                double idealCount = totalDesired > 0 ? (double)totalFrames * exposure.Desired / totalDesired : 0;
+                double deficit = idealCount - CompletionCount(exposure);
+
                 bool isProvisional = completionHelper != null && completionHelper.IsProvisionalPercentComplete(exposure);
-                sb.Append($"{exposure.FilterName}={ratio:F3} ({exposure.Accepted}a/{exposure.Acquired}q/{exposure.Desired}d{(isProvisional ? " provisional" : "")}), ");
+                sb.Append($"{exposure.FilterName}={ratio:F3} ({exposure.Accepted}a/{exposure.Acquired}q/{exposure.Desired}d{(isProvisional ? " provisional" : "")}, deficit={deficit:F1}), ");
 
                 if (ratio < minRatio) {
                     minRatio = ratio;
-                    mostBehind = exposure;
                 }
                 if (ratio > maxRatio) {
                     maxRatio = ratio;
                 }
+                if (deficit > worstDeficit) {
+                    worstDeficit = deficit;
+                    mostBehind = exposure;
+                }
             }
 
             double spread = maxRatio - minRatio;
-            sb.Append($"spread={spread:F3}, deadBand={DEAD_BAND}");
+
+            // Calculate catch-up threshold from the weighted rotation cycle length.
+            // During normal rotation, a filter can be up to (cycleLength - 1) frames
+            // behind ideal temporarily. We trigger catch-up when the deficit exceeds
+            // the cycle length, meaning the imbalance is beyond what normal rotation
+            // would produce.
+            int cycleLength = GetCycleLength(eligible);
+            sb.Append($"spread={spread:F3}, maxDeficit={worstDeficit:F1}, catchUpThreshold={cycleLength}");
             TSLogger.Debug(sb.ToString());
 
-            // --- Equal desired counts: simple dead band, defer to stock rotation ---
+            // --- Equal desired counts: use percentage-based dead band ---
             if (AllDesiredEqual(eligible)) {
-                if (spread >= DEAD_BAND) {
+                if (spread >= 0.05) {
                     TSLogger.Info($"ratio selector: {mostBehind.FilterName} is most behind (ratio={minRatio:F3}, spread={spread:F3}), prioritizing over default selection");
                     return mostBehind;
                 }
@@ -84,10 +102,9 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             }
 
             // --- Catch-up (unequal desired counts) ---
-            // Force the most-behind filter when spread exceeds dead band
-            if (spread >= DEAD_BAND) {
-                double deficit = GetFrameDeficit(mostBehind, eligible);
-                TSLogger.Info($"ratio selector: catch-up {mostBehind.FilterName} (ratio={minRatio:F3}, spread={spread:F3}, {deficit:F1} frames behind ideal)");
+            // Force the most-behind filter when its frame deficit exceeds the cycle length
+            if (worstDeficit >= cycleLength) {
+                TSLogger.Info($"ratio selector: catch-up {mostBehind.FilterName} ({worstDeficit:F1} frames behind ideal, threshold={cycleLength})");
                 return mostBehind;
             }
 
@@ -126,35 +143,35 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         /// <summary>
-        /// Checks if all filters are within 1 frame of their ideal proportional allocation.
-        /// ideal[f] = totalFrames * (desired[f] / sumDesired)
-        /// </summary>
-        internal bool AllWithinOneFrameOfIdeal(List<IExposure> eligible) {
-            int totalFrames = eligible.Sum(e => CompletionCount(e));
-            int totalDesired = eligible.Sum(e => e.Desired);
-
-            if (totalDesired == 0) return true;
-
-            foreach (IExposure e in eligible) {
-                double idealCount = (double)totalFrames * e.Desired / totalDesired;
-                double actualCount = CompletionCount(e);
-                if (Math.Abs(actualCount - idealCount) >= 1.0) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        /// <summary>
         /// Calculate how many frames behind ideal a specific filter is.
+        /// Returns positive when behind, negative when ahead.
         /// </summary>
-        private double GetFrameDeficit(IExposure exposure, List<IExposure> eligible) {
+        internal double GetFrameDeficit(IExposure exposure, List<IExposure> eligible) {
             int totalFrames = eligible.Sum(e => CompletionCount(e));
             int totalDesired = eligible.Sum(e => e.Desired);
             if (totalDesired == 0) return 0;
 
             double idealCount = (double)totalFrames * exposure.Desired / totalDesired;
             return idealCount - CompletionCount(exposure);
+        }
+
+        /// <summary>
+        /// Calculates the weighted rotation cycle length for the given candidates.
+        /// For L:300, R:100, G:100, B:100 → GCD=100 → weights [3,1,1,1] → cycle length 6.
+        /// </summary>
+        internal int GetCycleLength(List<IExposure> eligible) {
+            int[] weights = eligible.Select(e => e.Desired).ToArray();
+            int gcd = weights.Aggregate(GCD);
+            if (gcd == 0) gcd = 1;
+            int[] normalized = weights.Select(w => w / gcd).ToArray();
+
+            int cycleLength = normalized.Sum();
+            if (cycleLength > MAX_CYCLE_LENGTH) {
+                int divisor = (cycleLength + MAX_CYCLE_LENGTH - 1) / MAX_CYCLE_LENGTH;
+                normalized = normalized.Select(w => Math.Max(1, w / divisor)).ToArray();
+                cycleLength = normalized.Sum();
+            }
+            return cycleLength;
         }
 
         /// <summary>
