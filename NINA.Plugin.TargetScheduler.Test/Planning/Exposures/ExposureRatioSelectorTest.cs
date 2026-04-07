@@ -377,6 +377,72 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             }
         }
 
+        // =====================================================================
+        // Block Shooting (FilterSwitchFrequency > 1) Tests
+        // =====================================================================
+
+        [Test]
+        public void testBlockShootingWeightedRotation() {
+            // FSF=3, L:200, R:100 -> GCD=100, weights [2,1], base cycle=3
+            // Block cycle: L×3, L×3, R×3 (length 9)
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 200, 0));
+            candidates.Add(MakeExposure("R", 100, 0));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100), filterSwitchFrequency: 3);
+
+            string[] expected = { "L", "L", "L", "L", "L", "L", "R", "R", "R" };
+            for (int i = 0; i < expected.Length; i++) {
+                IExposure result = sut.Select(candidates);
+                result.Should().NotBeNull($"iteration {i}");
+                result.FilterName.Should().Be(expected[i], $"iteration {i}");
+            }
+        }
+
+        [Test]
+        public void testBlockShootingCycleWraps() {
+            // FSF=2, L:300, R:100, G:100, B:100 -> weights [3,1,1,1], base cycle=6
+            // Block cycle: L×2, L×2, L×2, R×2, G×2, B×2 (length 12)
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 0));
+            candidates.Add(MakeExposure("R", 100, 0));
+            candidates.Add(MakeExposure("G", 100, 0));
+            candidates.Add(MakeExposure("B", 100, 0));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100), filterSwitchFrequency: 2);
+
+            string[] expected = { "L", "L", "L", "L", "L", "L", "R", "R", "G", "G", "B", "B",
+                                  "L", "L", "L", "L", "L", "L", "R", "R", "G", "G", "B", "B" };
+            for (int i = 0; i < expected.Length; i++) {
+                IExposure result = sut.Select(candidates);
+                result.Should().NotBeNull($"iteration {i}");
+                result.FilterName.Should().Be(expected[i], $"iteration {i}");
+            }
+        }
+
+        [Test]
+        public void testBlockShootingFSF1SameAsDefault() {
+            // FSF=1 should behave exactly like no FSF parameter
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 0));
+            candidates.Add(MakeExposure("R", 100, 0));
+            candidates.Add(MakeExposure("G", 100, 0));
+            candidates.Add(MakeExposure("B", 100, 0));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100), filterSwitchFrequency: 1);
+
+            string[] expected = { "L", "L", "L", "R", "G", "B" };
+            for (int i = 0; i < expected.Length; i++) {
+                IExposure result = sut.Select(candidates);
+                result.Should().NotBeNull($"iteration {i}");
+                result.FilterName.Should().Be(expected[i], $"iteration {i}");
+            }
+        }
+
+        // =====================================================================
+        // Catch-Up Tests
+        // =====================================================================
+
         [Test]
         public void testCatchUpMoonAvoidanceScenario() {
             // Simulates O being blocked by moon while H and S accumulate

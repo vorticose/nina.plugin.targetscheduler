@@ -15,7 +15,8 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
     ///    rotation cycle length, so normal rotation drift doesn't trigger catch-up.
     ///
     /// 2. WEIGHTED ROTATION: when balanced, rotates proportional to desired counts
-    ///    (e.g. L,L,L,R,G,B for 3:1:1:1 ratio) instead of equal round-robin.
+    ///    (e.g. L,L,L,R,G,B for 3:1:1:1 ratio). When FilterSwitchFrequency > 1,
+    ///    each slot becomes a block (e.g. L×10,L×10,L×10,R×10,G×10,B×10 for FSF=10).
     ///
     /// 3. DEFER: returns null for single candidates or equal desired counts,
     ///    letting the stock SmartExposureRotateManager handle selection.
@@ -24,11 +25,13 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         private const int MAX_CYCLE_LENGTH = 50;
 
         private ExposureCompletionHelper completionHelper;
+        private int filterSwitchFrequency;
         private int _weightedRotationIndex = 0;
         private List<string> _lastCandidateFingerprint = null;
 
-        public ExposureRatioSelector(ExposureCompletionHelper completionHelper) {
+        public ExposureRatioSelector(ExposureCompletionHelper completionHelper, int filterSwitchFrequency = 1) {
             this.completionHelper = completionHelper;
+            this.filterSwitchFrequency = Math.Max(1, filterSwitchFrequency);
         }
 
         /// <summary>
@@ -83,10 +86,8 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             double spread = maxRatio - minRatio;
 
             // Calculate catch-up threshold from the weighted rotation cycle length.
-            // During normal rotation, a filter can be up to (cycleLength - 1) frames
-            // behind ideal temporarily. We trigger catch-up when the deficit exceeds
-            // the cycle length, meaning the imbalance is beyond what normal rotation
-            // would produce.
+            // The cycle length accounts for FilterSwitchFrequency (block size), so
+            // normal block rotation drift doesn't trigger catch-up.
             int cycleLength = GetCycleLength(eligible);
             sb.Append($"spread={spread:F3}, maxDeficit={worstDeficit:F1}, catchUpThreshold={cycleLength}");
             TSLogger.Debug(sb.ToString());
@@ -156,8 +157,10 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         /// <summary>
-        /// Calculates the weighted rotation cycle length for the given candidates.
-        /// For L:300, R:100, G:100, B:100 → GCD=100 → weights [3,1,1,1] → cycle length 6.
+        /// Calculates the weighted rotation cycle length for the given candidates,
+        /// scaled by FilterSwitchFrequency for block shooting.
+        /// For L:300, R:100, G:100, B:100 with FSF=1 → cycle length 6.
+        /// For L:300, R:100, G:100, B:100 with FSF=10 → cycle length 60.
         /// </summary>
         internal int GetCycleLength(List<IExposure> eligible) {
             int[] weights = eligible.Select(e => e.Desired).ToArray();
@@ -165,13 +168,13 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             if (gcd == 0) gcd = 1;
             int[] normalized = weights.Select(w => w / gcd).ToArray();
 
-            int cycleLength = normalized.Sum();
-            if (cycleLength > MAX_CYCLE_LENGTH) {
-                int divisor = (cycleLength + MAX_CYCLE_LENGTH - 1) / MAX_CYCLE_LENGTH;
+            int baseCycleLength = normalized.Sum();
+            if (baseCycleLength > MAX_CYCLE_LENGTH) {
+                int divisor = (baseCycleLength + MAX_CYCLE_LENGTH - 1) / MAX_CYCLE_LENGTH;
                 normalized = normalized.Select(w => Math.Max(1, w / divisor)).ToArray();
-                cycleLength = normalized.Sum();
+                baseCycleLength = normalized.Sum();
             }
-            return cycleLength;
+            return baseCycleLength * filterSwitchFrequency;
         }
 
         /// <summary>
@@ -184,7 +187,9 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
         /// <summary>
         /// Selects the next filter from a weighted rotation cycle proportional to desired counts.
-        /// For L:300, R:100, G:100, B:100 (GCD=100), cycle is L,L,L,R,G,B (length 6).
+        /// When FilterSwitchFrequency > 1, each weight slot is repeated FSF times to produce
+        /// blocks. For L:300, R:100, G:100, B:100 with FSF=10:
+        ///   cycle = L×10, L×10, L×10, R×10, G×10, B×10 (length 60)
         /// </summary>
         internal IExposure WeightedRotationSelect(List<IExposure> eligible) {
             // Detect candidate set changes and reset cycle
@@ -194,26 +199,30 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 _weightedRotationIndex = 0;
             }
 
-            // Build weights normalized by GCD
+            // Build weights normalized by GCD, scaled by FilterSwitchFrequency
             int[] weights = eligible.Select(e => e.Desired).ToArray();
             int gcd = weights.Aggregate(GCD);
             if (gcd == 0) gcd = 1;
             int[] normalized = weights.Select(w => w / gcd).ToArray();
 
-            // Cap cycle length to prevent extreme ratios from creating huge cycles
-            int cycleLength = normalized.Sum();
-            if (cycleLength > MAX_CYCLE_LENGTH) {
-                int divisor = (cycleLength + MAX_CYCLE_LENGTH - 1) / MAX_CYCLE_LENGTH;
+            // Cap base cycle length before scaling by FSF
+            int baseCycleLength = normalized.Sum();
+            if (baseCycleLength > MAX_CYCLE_LENGTH) {
+                int divisor = (baseCycleLength + MAX_CYCLE_LENGTH - 1) / MAX_CYCLE_LENGTH;
                 normalized = normalized.Select(w => Math.Max(1, w / divisor)).ToArray();
-                cycleLength = normalized.Sum();
+                baseCycleLength = normalized.Sum();
             }
 
-            // Map index to filter using cumulative sums
+            // Scale each weight by FSF to produce blocks
+            int[] blockWeights = normalized.Select(w => w * filterSwitchFrequency).ToArray();
+            int cycleLength = blockWeights.Sum();
+
+            // Map index to filter using cumulative sums over block weights
             int pos = _weightedRotationIndex % cycleLength;
             int cumulative = 0;
             IExposure selected = eligible.Last();
             for (int i = 0; i < eligible.Count; i++) {
-                cumulative += normalized[i];
+                cumulative += blockWeights[i];
                 if (pos < cumulative) {
                     selected = eligible[i];
                     break;
