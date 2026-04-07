@@ -421,6 +421,52 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         }
 
         [Test]
+        public void testWeightedRotationStartsWithMostBehindFilter() {
+            // R is most behind (deficit positive), rotation should start with R's block
+            // L:300 accepted=150 (ratio 0.500), R:100 accepted=30 (ratio 0.300)
+            // G:100 accepted=50 (ratio 0.500), B:100 accepted=50 (ratio 0.500)
+            // Total=280, R ideal=280*100/600=46.7, R actual=30, deficit=16.7
+            // Spread=0.200 but cycle length=6, deficit 16.7 > 6 → catch-up fires.
+            //
+            // Use a case where deficit < cycle length so weighted rotation runs:
+            // L:300 accepted=147, R:100 accepted=47, G:100 accepted=50, B:100 accepted=50
+            // Total=294, R ideal=294*100/600=49.0, R actual=47, deficit=2.0
+            // L ideal=294*300/600=147.0, L actual=147, deficit=0
+            // Spread: max=0.500 (G,B), min=0.470 (R), spread=0.030 < catch-up threshold
+            // R is most behind → rotation should start at R's position, not L's
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 147));
+            candidates.Add(MakeExposure("R", 100, 47));
+            candidates.Add(MakeExposure("G", 100, 50));
+            candidates.Add(MakeExposure("B", 100, 50));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+            IExposure result = sut.Select(candidates);
+            result.Should().NotBeNull();
+            result.FilterName.Should().Be("R", "should start rotation at the most-behind filter");
+        }
+
+        [Test]
+        public void testBlockShootingStartsWithMostBehindFilter() {
+            // Same concept but with FSF=5: should start at R's block
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 147));
+            candidates.Add(MakeExposure("R", 100, 47));
+            candidates.Add(MakeExposure("G", 100, 50));
+            candidates.Add(MakeExposure("B", 100, 50));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100), filterSwitchFrequency: 5);
+            IExposure result = sut.Select(candidates);
+            result.Should().NotBeNull();
+            result.FilterName.Should().Be("R", "block rotation should start at the most-behind filter's block");
+
+            // Should stay on R for FSF=5 calls
+            for (int i = 1; i < 5; i++) {
+                sut.Select(candidates).FilterName.Should().Be("R", $"should stay in R block, call {i+1}");
+            }
+        }
+
+        [Test]
         public void testBlockShootingFSF1SameAsDefault() {
             // FSF=1 should behave exactly like no FSF parameter
             List<IExposure> candidates = new List<IExposure>();

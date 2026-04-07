@@ -196,7 +196,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             var fingerprint = eligible.Select(e => e.FilterName).ToList();
             if (_lastCandidateFingerprint == null || !fingerprint.SequenceEqual(_lastCandidateFingerprint)) {
                 _lastCandidateFingerprint = fingerprint;
-                _weightedRotationIndex = 0;
+                _weightedRotationIndex = FindStartIndex(eligible);
             }
 
             // Build weights normalized by GCD, scaled by FilterSwitchFrequency
@@ -231,6 +231,46 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
             _weightedRotationIndex = (_weightedRotationIndex + 1) % cycleLength;
             return selected;
+        }
+
+        /// <summary>
+        /// Finds the starting index in the weighted rotation cycle for the filter
+        /// with the largest frame deficit. Ensures the rotation begins with the
+        /// filter that needs frames most, rather than an arbitrary position.
+        /// </summary>
+        private int FindStartIndex(List<IExposure> eligible) {
+            // Find which filter has the largest deficit
+            double worstDeficit = double.MinValue;
+            int worstIndex = 0;
+            for (int i = 0; i < eligible.Count; i++) {
+                double deficit = GetFrameDeficit(eligible[i], eligible);
+                if (deficit > worstDeficit) {
+                    worstDeficit = deficit;
+                    worstIndex = i;
+                }
+            }
+
+            // If no filter is behind (all at or ahead of ideal), start at 0
+            if (worstDeficit <= 0) return 0;
+
+            // Map the filter index to its block start position in the cycle
+            int[] weights = eligible.Select(e => e.Desired).ToArray();
+            int gcd = weights.Aggregate(GCD);
+            if (gcd == 0) gcd = 1;
+            int[] normalized = weights.Select(w => w / gcd).ToArray();
+
+            int baseCycleLength = normalized.Sum();
+            if (baseCycleLength > MAX_CYCLE_LENGTH) {
+                int divisor = (baseCycleLength + MAX_CYCLE_LENGTH - 1) / MAX_CYCLE_LENGTH;
+                normalized = normalized.Select(w => Math.Max(1, w / divisor)).ToArray();
+            }
+
+            // Sum up the block weights before the target filter to find its start position
+            int startPos = 0;
+            for (int i = 0; i < worstIndex; i++) {
+                startPos += normalized[i] * filterSwitchFrequency;
+            }
+            return startPos;
         }
 
         internal static int GCD(int a, int b) {
