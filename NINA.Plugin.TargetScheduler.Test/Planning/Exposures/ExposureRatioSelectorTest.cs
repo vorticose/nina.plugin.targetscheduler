@@ -333,82 +333,48 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         // =====================================================================
 
         [Test]
-        public void testHysteresisEnterAndContinue() {
-            // L is behind: spread > 5% -> catch-up starts
-            // Then spread drops below 5% but L still behind ideal -> should continue catch-up
+        public void testCatchUpAboveDeadBand() {
+            // L=130/300=0.433, R=50/100=0.500, spread=0.067 > 0.05 -> catch-up L
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
-            // L=130/300=0.433, R=50/100=0.500, spread=0.067 > 0.05 -> catch-up L
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 130));
             candidates.Add(MakeExposure("R", 100, 50));
-            IExposure result1 = sut.Select(candidates);
-            result1.FilterName.Should().Be("L");
-
-            // Simulate L getting one more frame: L=131/300=0.437, R=50/100=0.500
-            // spread=0.063 still > 0.05 -> catch-up continues
-            List<IExposure> candidates2 = new List<IExposure>();
-            candidates2.Add(MakeExposure("L", 300, 131));
-            candidates2.Add(MakeExposure("R", 100, 50));
-            IExposure result2 = sut.Select(candidates2);
-            result2.FilterName.Should().Be("L");
-
-            // L=140/300=0.467, R=50/100=0.500, spread=0.033 < 0.05
-            // But L ideal = 190 * 300/400 = 142.5, actual=140, deficit=2.5 >= 1 -> continue catch-up
-            List<IExposure> candidates3 = new List<IExposure>();
-            candidates3.Add(MakeExposure("L", 300, 140));
-            candidates3.Add(MakeExposure("R", 100, 50));
-            IExposure result3 = sut.Select(candidates3);
-            result3.FilterName.Should().Be("L", "should continue catch-up even though spread < dead band");
+            IExposure result = sut.Select(candidates);
+            result.FilterName.Should().Be("L");
         }
 
         [Test]
-        public void testHysteresisExitToWeightedRotation() {
-            // When all filters are within 1 frame of ideal, catch-up should exit
-            // and weighted rotation should take over
+        public void testWithinDeadBandUsesWeightedRotation() {
+            // L=140/300=0.467, R=50/100=0.500, spread=0.033 < 0.05 -> weighted rotation
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
-            // L=150/300=0.500, R=50/100=0.500, spread=0, all at ideal -> weighted rotation
-            // Total=200, L ideal=200*300/400=150 (actual 150), R ideal=200*100/400=50 (actual 50)
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 140));
+            candidates.Add(MakeExposure("R", 100, 50));
+
+            // Within dead band, unequal desired -> weighted rotation (L,L,L,R)
+            IExposure result = sut.Select(candidates);
+            result.Should().NotBeNull();
+            result.FilterName.Should().Be("L", "should use weighted rotation when within dead band");
+        }
+
+        [Test]
+        public void testBalancedUsesWeightedRotation() {
+            // L=150/300=0.500, R=50/100=0.500, spread=0 -> weighted rotation
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 150));
             candidates.Add(MakeExposure("R", 100, 50));
 
             // Should produce weighted rotation: L,L,L,R
-            IExposure result = sut.Select(candidates);
-            result.Should().NotBeNull();
-            result.FilterName.Should().Be("L", "should be in weighted rotation, not catch-up");
-        }
-
-        [Test]
-        public void testAllWithinOneFrameOfIdeal_Balanced() {
-            // L=150/300, R=50/100 -> perfectly proportional -> weighted rotation (not catch-up)
-            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            List<IExposure> candidates = new List<IExposure>();
-            candidates.Add(MakeExposure("L", 300, 150));
-            candidates.Add(MakeExposure("R", 100, 50));
-
-            // Should produce weighted rotation (L), not catch-up
-            IExposure result = sut.Select(candidates);
-            result.Should().NotBeNull();
-            // The fact that it returns non-null and follows weighted rotation pattern
-            // proves AllWithinOneFrameOfIdeal returned true (no catch-up)
-            result.FilterName.Should().Be("L");
-        }
-
-        [Test]
-        public void testAllWithinOneFrameOfIdeal_Behind() {
-            // L=140/300, R=50/100 -> L is behind ideal by 2.5 frames -> catch-up
-            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            List<IExposure> candidates = new List<IExposure>();
-            candidates.Add(MakeExposure("L", 300, 140));
-            candidates.Add(MakeExposure("R", 100, 50));
-
-            // spread = 0.500 - 0.467 = 0.033 < 0.05 (within dead band)
-            // But L ideal = 190*300/400 = 142.5, actual=140, deficit=2.5 >= 1 -> catch-up
-            IExposure result = sut.Select(candidates);
-            result.Should().NotBeNull();
-            result.FilterName.Should().Be("L", "should catch-up L despite spread < dead band");
+            string[] expected = { "L", "L", "L", "R" };
+            for (int i = 0; i < expected.Length; i++) {
+                IExposure result = sut.Select(candidates);
+                result.Should().NotBeNull($"iteration {i}");
+                result.FilterName.Should().Be(expected[i], $"iteration {i}");
+            }
         }
 
         [Test]

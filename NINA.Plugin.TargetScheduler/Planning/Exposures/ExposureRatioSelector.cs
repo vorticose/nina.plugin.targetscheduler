@@ -83,12 +83,9 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 return null;
             }
 
-            // --- Hysteresis catch-up (unequal desired counts) ---
-            // Enter at 5% spread, continue until all filters within 1 frame of ideal
-            bool shouldCatchUp = spread >= DEAD_BAND ||
-                                 (spread > 0 && !AllWithinOneFrameOfIdeal(eligible));
-
-            if (shouldCatchUp) {
+            // --- Catch-up (unequal desired counts) ---
+            // Force the most-behind filter when spread exceeds dead band
+            if (spread >= DEAD_BAND) {
                 double deficit = GetFrameDeficit(mostBehind, eligible);
                 TSLogger.Info($"ratio selector: catch-up {mostBehind.FilterName} (ratio={minRatio:F3}, spread={spread:F3}, {deficit:F1} frames behind ideal)");
                 return mostBehind;
