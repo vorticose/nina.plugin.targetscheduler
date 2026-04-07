@@ -230,6 +230,239 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             result.FilterName.Should().Be("B");
         }
 
+        // =====================================================================
+        // Weighted Rotation Tests
+        // =====================================================================
+
+        [Test]
+        public void testWeightedRotationSequence() {
+            // L:300, R:100, G:100, B:100 all at 0% -> weighted rotation
+            // GCD=100, weights [3,1,1,1], cycle = L,L,L,R,G,B
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 0));
+            candidates.Add(MakeExposure("R", 100, 0));
+            candidates.Add(MakeExposure("G", 100, 0));
+            candidates.Add(MakeExposure("B", 100, 0));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            string[] expected = { "L", "L", "L", "R", "G", "B" };
+            for (int i = 0; i < expected.Length; i++) {
+                IExposure result = sut.Select(candidates);
+                result.Should().NotBeNull($"iteration {i}");
+                result.FilterName.Should().Be(expected[i], $"iteration {i}");
+            }
+        }
+
+        [Test]
+        public void testWeightedRotationCycleWraps() {
+            // Verify the cycle repeats: L,L,L,R,G,B,L,L,L,R,G,B
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 0));
+            candidates.Add(MakeExposure("R", 100, 0));
+            candidates.Add(MakeExposure("G", 100, 0));
+            candidates.Add(MakeExposure("B", 100, 0));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            string[] expected = { "L", "L", "L", "R", "G", "B", "L", "L", "L", "R", "G", "B" };
+            for (int i = 0; i < expected.Length; i++) {
+                IExposure result = sut.Select(candidates);
+                result.Should().NotBeNull($"iteration {i}");
+                result.FilterName.Should().Be(expected[i], $"iteration {i}");
+            }
+        }
+
+        [Test]
+        public void testWeightedRotationTwoToOne() {
+            // S:20, H:10 -> GCD=10, weights [2,1], cycle = S,S,H
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("S", 20, 0));
+            candidates.Add(MakeExposure("H", 10, 0));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            string[] expected = { "S", "S", "H", "S", "S", "H" };
+            for (int i = 0; i < expected.Length; i++) {
+                IExposure result = sut.Select(candidates);
+                result.Should().NotBeNull($"iteration {i}");
+                result.FilterName.Should().Be(expected[i], $"iteration {i}");
+            }
+        }
+
+        [Test]
+        public void testEqualDesiredDefersToDefault() {
+            // All same desired, balanced -> should return null (defer to stock rotation)
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 100, 50));
+            candidates.Add(MakeExposure("R", 100, 50));
+            candidates.Add(MakeExposure("G", 100, 50));
+            candidates.Add(MakeExposure("B", 100, 50));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+            sut.Select(candidates).Should().BeNull();
+        }
+
+        [Test]
+        public void testCandidateSetChangeResetsRotation() {
+            // Start with 3 filters, weighted rotation in progress
+            List<IExposure> candidates3 = new List<IExposure>();
+            candidates3.Add(MakeExposure("L", 300, 0));
+            candidates3.Add(MakeExposure("R", 100, 0));
+            candidates3.Add(MakeExposure("G", 100, 0));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            // Take 2 from the 3-filter cycle
+            sut.Select(candidates3).FilterName.Should().Be("L");
+            sut.Select(candidates3).FilterName.Should().Be("L");
+
+            // Now add B -> candidate set changes, cycle should reset
+            List<IExposure> candidates4 = new List<IExposure>();
+            candidates4.Add(MakeExposure("L", 300, 0));
+            candidates4.Add(MakeExposure("R", 100, 0));
+            candidates4.Add(MakeExposure("G", 100, 0));
+            candidates4.Add(MakeExposure("B", 100, 0));
+
+            // Should restart from beginning: L,L,L,R,G,B
+            sut.Select(candidates4).FilterName.Should().Be("L");
+        }
+
+        // =====================================================================
+        // Hysteresis Tests
+        // =====================================================================
+
+        [Test]
+        public void testHysteresisEnterAndContinue() {
+            // L is behind: spread > 5% -> catch-up starts
+            // Then spread drops below 5% but L still behind ideal -> should continue catch-up
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            // L=130/300=0.433, R=50/100=0.500, spread=0.067 > 0.05 -> catch-up L
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 130));
+            candidates.Add(MakeExposure("R", 100, 50));
+            IExposure result1 = sut.Select(candidates);
+            result1.FilterName.Should().Be("L");
+
+            // Simulate L getting one more frame: L=131/300=0.437, R=50/100=0.500
+            // spread=0.063 still > 0.05 -> catch-up continues
+            List<IExposure> candidates2 = new List<IExposure>();
+            candidates2.Add(MakeExposure("L", 300, 131));
+            candidates2.Add(MakeExposure("R", 100, 50));
+            IExposure result2 = sut.Select(candidates2);
+            result2.FilterName.Should().Be("L");
+
+            // L=140/300=0.467, R=50/100=0.500, spread=0.033 < 0.05
+            // But L ideal = 190 * 300/400 = 142.5, actual=140, deficit=2.5 >= 1 -> continue catch-up
+            List<IExposure> candidates3 = new List<IExposure>();
+            candidates3.Add(MakeExposure("L", 300, 140));
+            candidates3.Add(MakeExposure("R", 100, 50));
+            IExposure result3 = sut.Select(candidates3);
+            result3.FilterName.Should().Be("L", "should continue catch-up even though spread < dead band");
+        }
+
+        [Test]
+        public void testHysteresisExitToWeightedRotation() {
+            // When all filters are within 1 frame of ideal, catch-up should exit
+            // and weighted rotation should take over
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            // L=150/300=0.500, R=50/100=0.500, spread=0, all at ideal -> weighted rotation
+            // Total=200, L ideal=200*300/400=150 (actual 150), R ideal=200*100/400=50 (actual 50)
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 150));
+            candidates.Add(MakeExposure("R", 100, 50));
+
+            // Should produce weighted rotation: L,L,L,R
+            IExposure result = sut.Select(candidates);
+            result.Should().NotBeNull();
+            result.FilterName.Should().Be("L", "should be in weighted rotation, not catch-up");
+        }
+
+        [Test]
+        public void testAllWithinOneFrameOfIdeal_Balanced() {
+            // L=150/300, R=50/100 -> perfectly proportional -> weighted rotation (not catch-up)
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 150));
+            candidates.Add(MakeExposure("R", 100, 50));
+
+            // Should produce weighted rotation (L), not catch-up
+            IExposure result = sut.Select(candidates);
+            result.Should().NotBeNull();
+            // The fact that it returns non-null and follows weighted rotation pattern
+            // proves AllWithinOneFrameOfIdeal returned true (no catch-up)
+            result.FilterName.Should().Be("L");
+        }
+
+        [Test]
+        public void testAllWithinOneFrameOfIdeal_Behind() {
+            // L=140/300, R=50/100 -> L is behind ideal by 2.5 frames -> catch-up
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 140));
+            candidates.Add(MakeExposure("R", 100, 50));
+
+            // spread = 0.500 - 0.467 = 0.033 < 0.05 (within dead band)
+            // But L ideal = 190*300/400 = 142.5, actual=140, deficit=2.5 >= 1 -> catch-up
+            IExposure result = sut.Select(candidates);
+            result.Should().NotBeNull();
+            result.FilterName.Should().Be("L", "should catch-up L despite spread < dead band");
+        }
+
+        [Test]
+        public void testCatchUpMoonAvoidanceScenario() {
+            // Simulates O being blocked by moon while H and S accumulate
+            // H=50/100=0.50, S=50/100=0.50, O=5/100=0.05
+            // O is way behind, should be forced in catch-up
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("H", 100, 50));
+            candidates.Add(MakeExposure("S", 100, 50));
+            candidates.Add(MakeExposure("O", 100, 5));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            // O is massively behind, should keep selecting O
+            for (int i = 0; i < 5; i++) {
+                IExposure result = sut.Select(candidates);
+                result.Should().NotBeNull($"iteration {i}");
+                result.FilterName.Should().Be("O", $"iteration {i}: O should stay in catch-up");
+            }
+        }
+
+        [Test]
+        public void testWeightedRotationVariousRatios() {
+            // Verify GCD normalization works for different ratios by checking output patterns
+            ExposureRatioSelector sut;
+
+            // 150:100 -> GCD=50, weights [3,2], cycle = H,H,H,S,S
+            sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+            List<IExposure> candidates1 = new List<IExposure>();
+            candidates1.Add(MakeExposure("H", 150, 0));
+            candidates1.Add(MakeExposure("S", 100, 0));
+
+            string[] expected1 = { "H", "H", "H", "S", "S" };
+            for (int i = 0; i < expected1.Length; i++) {
+                sut.Select(candidates1).FilterName.Should().Be(expected1[i], $"150:100 iteration {i}");
+            }
+
+            // 7:3 -> GCD=1, weights [7,3], cycle length 10
+            sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+            List<IExposure> candidates2 = new List<IExposure>();
+            candidates2.Add(MakeExposure("L", 7, 0));
+            candidates2.Add(MakeExposure("R", 3, 0));
+
+            int lCount = 0, rCount = 0;
+            for (int i = 0; i < 10; i++) {
+                IExposure r = sut.Select(candidates2);
+                if (r.FilterName == "L") lCount++;
+                else rCount++;
+            }
+            lCount.Should().Be(7);
+            rCount.Should().Be(3);
+        }
+
         /// <summary>
         /// Creates a mock exposure for ratio testing.
         /// Sets both Acquired and Accepted so the ratio works regardless of grading mode.

@@ -1,5 +1,6 @@
 using NINA.Plugin.TargetScheduler.Planning.Interfaces;
 using NINA.Plugin.TargetScheduler.Shared.Utility;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -7,23 +8,36 @@ using System.Text;
 namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
     /// <summary>
-    /// Selects the exposure that is furthest behind its target ratio (Accepted/Desired).
-    /// Uses Acquired instead of Accepted when grading is delayed and the threshold has not been reached.
-    /// Returns null if all candidates are within the dead band (roughly balanced),
-    /// signaling the caller to fall back to its default selection behavior.
+    /// Maintains proportional filter balance using three modes:
+    ///
+    /// 1. CATCH-UP: when spread exceeds DEAD_BAND (5%) or filters haven't converged
+    ///    to their ideal allocation, forces the most-behind filter.
+    ///
+    /// 2. WEIGHTED ROTATION: when balanced, rotates proportional to desired counts
+    ///    (e.g. L,L,L,R,G,B for 3:1:1:1 ratio) instead of equal round-robin.
+    ///
+    /// 3. DEFER: returns null for single candidates or equal desired counts,
+    ///    letting the stock SmartExposureRotateManager handle selection.
+    ///
+    /// Uses stateless hysteresis: the 5% threshold triggers catch-up, but catch-up
+    /// continues until all filters are within 1 frame of their ideal allocation.
     /// </summary>
     public class ExposureRatioSelector {
         public const double DEAD_BAND = 0.05;
+        private const int MAX_CYCLE_LENGTH = 50;
 
         private ExposureCompletionHelper completionHelper;
+        private int _weightedRotationIndex = 0;
+        private List<string> _lastCandidateFingerprint = null;
 
         public ExposureRatioSelector(ExposureCompletionHelper completionHelper) {
             this.completionHelper = completionHelper;
         }
 
         /// <summary>
-        /// Select the exposure with the lowest completion ratio among the candidates.
-        /// Returns null if all candidates are within the dead band or there is only one candidate.
+        /// Select the next exposure using hysteresis catch-up or weighted rotation.
+        /// Returns null only for degenerate cases (0-1 candidates) or when all
+        /// candidates have equal desired counts and are balanced.
         /// </summary>
         public IExposure Select(List<IExposure> candidates) {
             List<IExposure> eligible = candidates.Where(e => !e.Rejected && e.Desired > 0).ToList();
@@ -33,7 +47,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 return null;
             }
 
-            // Log all ratios for visibility
+            // Calculate ratios and find most-behind filter
             var sb = new StringBuilder();
             sb.Append("ratio selector candidates: ");
 
@@ -59,13 +73,31 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             sb.Append($"spread={spread:F3}, deadBand={DEAD_BAND}");
             TSLogger.Debug(sb.ToString());
 
-            if (spread < DEAD_BAND) {
-                TSLogger.Debug($"ratio selector: within dead band ({spread:F3} < {DEAD_BAND}), deferring to default selector");
+            // --- Equal desired counts: simple dead band, defer to stock rotation ---
+            if (AllDesiredEqual(eligible)) {
+                if (spread >= DEAD_BAND) {
+                    TSLogger.Info($"ratio selector: {mostBehind.FilterName} is most behind (ratio={minRatio:F3}, spread={spread:F3}), prioritizing over default selection");
+                    return mostBehind;
+                }
+                TSLogger.Debug($"ratio selector: equal desired counts, within dead band ({spread:F3}), deferring to default selector");
                 return null;
             }
 
-            TSLogger.Info($"ratio selector: {mostBehind.FilterName} is most behind (ratio={minRatio:F3}), prioritizing over default selection");
-            return mostBehind;
+            // --- Hysteresis catch-up (unequal desired counts) ---
+            // Enter at 5% spread, continue until all filters within 1 frame of ideal
+            bool shouldCatchUp = spread >= DEAD_BAND ||
+                                 (spread > 0 && !AllWithinOneFrameOfIdeal(eligible));
+
+            if (shouldCatchUp) {
+                double deficit = GetFrameDeficit(mostBehind, eligible);
+                TSLogger.Info($"ratio selector: catch-up {mostBehind.FilterName} (ratio={minRatio:F3}, spread={spread:F3}, {deficit:F1} frames behind ideal)");
+                return mostBehind;
+            }
+
+            // --- Weighted rotation ---
+            IExposure selected = WeightedRotationSelect(eligible);
+            TSLogger.Debug($"ratio selector: weighted rotation -> {selected.FilterName}");
+            return selected;
         }
 
         /// <summary>
@@ -82,6 +114,107 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             }
 
             return (double)exposure.Accepted / (double)exposure.Desired;
+        }
+
+        /// <summary>
+        /// Returns the raw frame count used for ratio calculation (Acquired or Accepted
+        /// depending on grading mode).
+        /// </summary>
+        internal int CompletionCount(IExposure exposure) {
+            if (completionHelper != null &&
+                (!completionHelper.ImageGradingEnabled || completionHelper.IsProvisionalPercentComplete(exposure))) {
+                return exposure.Acquired;
+            }
+            return exposure.Accepted;
+        }
+
+        /// <summary>
+        /// Checks if all filters are within 1 frame of their ideal proportional allocation.
+        /// ideal[f] = totalFrames * (desired[f] / sumDesired)
+        /// </summary>
+        internal bool AllWithinOneFrameOfIdeal(List<IExposure> eligible) {
+            int totalFrames = eligible.Sum(e => CompletionCount(e));
+            int totalDesired = eligible.Sum(e => e.Desired);
+
+            if (totalDesired == 0) return true;
+
+            foreach (IExposure e in eligible) {
+                double idealCount = (double)totalFrames * e.Desired / totalDesired;
+                double actualCount = CompletionCount(e);
+                if (Math.Abs(actualCount - idealCount) >= 1.0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Calculate how many frames behind ideal a specific filter is.
+        /// </summary>
+        private double GetFrameDeficit(IExposure exposure, List<IExposure> eligible) {
+            int totalFrames = eligible.Sum(e => CompletionCount(e));
+            int totalDesired = eligible.Sum(e => e.Desired);
+            if (totalDesired == 0) return 0;
+
+            double idealCount = (double)totalFrames * exposure.Desired / totalDesired;
+            return idealCount - CompletionCount(exposure);
+        }
+
+        /// <summary>
+        /// Checks if all eligible candidates have the same Desired count.
+        /// </summary>
+        private bool AllDesiredEqual(List<IExposure> eligible) {
+            int first = eligible[0].Desired;
+            return eligible.All(e => e.Desired == first);
+        }
+
+        /// <summary>
+        /// Selects the next filter from a weighted rotation cycle proportional to desired counts.
+        /// For L:300, R:100, G:100, B:100 (GCD=100), cycle is L,L,L,R,G,B (length 6).
+        /// </summary>
+        internal IExposure WeightedRotationSelect(List<IExposure> eligible) {
+            // Detect candidate set changes and reset cycle
+            var fingerprint = eligible.Select(e => e.FilterName).ToList();
+            if (_lastCandidateFingerprint == null || !fingerprint.SequenceEqual(_lastCandidateFingerprint)) {
+                _lastCandidateFingerprint = fingerprint;
+                _weightedRotationIndex = 0;
+            }
+
+            // Build weights normalized by GCD
+            int[] weights = eligible.Select(e => e.Desired).ToArray();
+            int gcd = weights.Aggregate(GCD);
+            if (gcd == 0) gcd = 1;
+            int[] normalized = weights.Select(w => w / gcd).ToArray();
+
+            // Cap cycle length to prevent extreme ratios from creating huge cycles
+            int cycleLength = normalized.Sum();
+            if (cycleLength > MAX_CYCLE_LENGTH) {
+                int divisor = (cycleLength + MAX_CYCLE_LENGTH - 1) / MAX_CYCLE_LENGTH;
+                normalized = normalized.Select(w => Math.Max(1, w / divisor)).ToArray();
+                cycleLength = normalized.Sum();
+            }
+
+            // Map index to filter using cumulative sums
+            int pos = _weightedRotationIndex % cycleLength;
+            int cumulative = 0;
+            IExposure selected = eligible.Last();
+            for (int i = 0; i < eligible.Count; i++) {
+                cumulative += normalized[i];
+                if (pos < cumulative) {
+                    selected = eligible[i];
+                    break;
+                }
+            }
+
+            _weightedRotationIndex = (_weightedRotationIndex + 1) % cycleLength;
+            return selected;
+        }
+
+        internal static int GCD(int a, int b) {
+            a = Math.Abs(a);
+            b = Math.Abs(b);
+            while (b != 0) { int t = b; b = a % b; a = t; }
+            return a;
         }
     }
 }
