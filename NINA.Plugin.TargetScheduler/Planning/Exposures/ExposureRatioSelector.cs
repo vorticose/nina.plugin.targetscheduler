@@ -149,14 +149,15 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         /// <summary>
         /// Selects the next filter from a deficit-adjusted weighted rotation cycle.
         /// Base weights come from desired counts (normalized by GCD). Filters that are
-        /// behind their ideal allocation get extra weight equal to their deficit (rounded up),
-        /// blending catch-up into the rotation pattern.
+        /// behind their ideal allocation by 0.5+ frames get extra weight equal to their
+        /// deficit (rounded), blending catch-up into the rotation pattern. Sub-half-frame
+        /// deficits are ignored so the cycle converges cleanly to the base weights.
         ///
         /// For L:300, R:100, G:100, B:100 with B 3.2 frames behind:
         ///   Base weights:     [3, 1, 1, 1]
-        ///   Deficit adjust:   [0, 0, 0, +4]  (ceil(3.2) = 4)
-        ///   Adjusted weights: [3, 1, 1, 5]
-        ///   Cycle: L,L,L,R,G,B,B,B,B,B (length 10)
+        ///   Deficit adjust:   [0, 0, 0, +3]  (round(3.2) = 3)
+        ///   Adjusted weights: [3, 1, 1, 4]
+        ///   Cycle: L,L,L,R,G,B,B,B,B (length 9)
         ///
         /// When FilterSwitchFrequency > 1, each weight is scaled by FSF for block shooting.
         /// </summary>
@@ -185,7 +186,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             int[] adjustedWeights = new int[eligible.Count];
             bool hasDeficit = false;
             for (int i = 0; i < eligible.Count; i++) {
-                int extra = deficits[i] > 0 ? (int)Math.Ceiling(deficits[i]) : 0;
+                int extra = deficits[i] >= 0.5 ? (int)Math.Round(deficits[i]) : 0;
                 adjustedWeights[i] = baseWeights[i] + extra;
                 if (extra > 0) hasDeficit = true;
             }

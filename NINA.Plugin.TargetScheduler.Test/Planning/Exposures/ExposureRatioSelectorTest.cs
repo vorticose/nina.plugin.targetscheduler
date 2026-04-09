@@ -394,8 +394,8 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
 
         [Test]
         public void testSmallDeficitGetsOneExtraFrame() {
-            // R is 0.8 frames behind -> ceil(0.8) = 1 extra frame
-            // Total=200, R ideal=200*100/400=50, R actual=49, deficit=1.0 -> ceil=1
+            // R is 0.83 frames behind -> round(0.83) = 1 extra frame
+            // Total=299, R ideal=299*100/600=49.83, R actual=49, deficit=0.83 -> round=1
             // Base [3,1,1,1], adjusted [3,2,1,1]
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 150));
