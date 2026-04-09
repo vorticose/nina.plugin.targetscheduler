@@ -8,14 +8,17 @@ using System.Text;
 namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
     /// <summary>
-    /// Maintains proportional filter balance by adjusting the weighted rotation cycle
-    /// to account for current frame deficits. Filters that are behind their ideal
-    /// allocation get extra frames blended into the rotation, naturally closing gaps
-    /// without a separate catch-up mode or oscillation-prone thresholds.
+    /// Maintains proportional filter balance using a two-phase approach:
     ///
-    /// For L:300, R:100, G:100, B:100 with B 3 frames behind:
-    ///   Normal weights:   [3, 1, 1, 1] → L,L,L,R,G,B
-    ///   Adjusted weights: [3, 1, 1, 4] → L,L,L,R,G,B,B,B,B
+    /// Phase 1 (catch-up): when any filter is >= 1 frame behind its ideal allocation,
+    /// greedy-select the most-behind filter. This closes large deficits quickly.
+    ///
+    /// Phase 2 (weighted rotation): when all filters are within 1 frame of ideal,
+    /// rotate proportional to desired counts using stable base weights. For L:300,
+    /// R:100, G:100, B:100 the cycle is L,L,L,R,G,B (weights [3,1,1,1]).
+    ///
+    /// Phase 2 does not oscillate back to Phase 1 because the rotation gives each
+    /// filter exactly its ideal share per cycle — no deficit accumulates.
     ///
     /// When FilterSwitchFrequency > 1, each weight slot becomes a block.
     ///
@@ -36,9 +39,10 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         /// <summary>
-        /// Select the next exposure using deficit-adjusted weighted rotation.
-        /// Returns null only for degenerate cases (0-1 candidates) or when all
-        /// candidates have equal desired counts and are balanced.
+        /// Select the next exposure using two-phase deficit correction.
+        /// Phase 1: any filter >= 1 frame behind -> greedy catch-up (most behind).
+        /// Phase 2: all within 1 frame -> clean weighted rotation.
+        /// Returns null for degenerate cases (0-1 candidates) or equal desired counts.
         /// </summary>
         public IExposure Select(List<IExposure> candidates) {
             List<IExposure> eligible = candidates.Where(e => !e.Rejected && e.Desired > 0).ToList();
@@ -63,6 +67,8 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             double minRatio = double.MaxValue;
             double maxRatio = double.MinValue;
             double[] deficits = new double[eligible.Count];
+            double maxDeficit = double.MinValue;
+            int maxDeficitIndex = 0;
 
             for (int i = 0; i < eligible.Count; i++) {
                 IExposure exposure = eligible[i];
@@ -75,6 +81,10 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
                 if (ratio < minRatio) minRatio = ratio;
                 if (ratio > maxRatio) maxRatio = ratio;
+                if (deficits[i] > maxDeficit) {
+                    maxDeficit = deficits[i];
+                    maxDeficitIndex = i;
+                }
             }
 
             double spread = maxRatio - minRatio;
@@ -84,7 +94,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             // --- Equal desired counts: use percentage-based dead band ---
             if (AllDesiredEqual(eligible)) {
                 if (spread >= 0.05) {
-                    IExposure mostBehind = eligible[Array.IndexOf(deficits, deficits.Max())];
+                    IExposure mostBehind = eligible[maxDeficitIndex];
                     TSLogger.Info($"ratio selector: {mostBehind.FilterName} is most behind (ratio={minRatio:F3}, spread={spread:F3}), prioritizing over default selection");
                     return mostBehind;
                 }
@@ -92,7 +102,14 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 return null;
             }
 
-            // --- Deficit-adjusted weighted rotation ---
+            // --- Phase 1: Greedy catch-up when any filter is >= 1 frame behind ---
+            if (maxDeficit >= 1.0) {
+                IExposure mostBehind = eligible[maxDeficitIndex];
+                TSLogger.Info($"ratio selector: catch-up -> {mostBehind.FilterName} (deficit={maxDeficit:F1})");
+                return mostBehind;
+            }
+
+            // --- Phase 2: Clean weighted rotation (base weights only) ---
             IExposure selected = WeightedRotationSelect(eligible, deficits);
             return selected;
         }
@@ -147,17 +164,14 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         /// <summary>
-        /// Selects the next filter from a deficit-adjusted weighted rotation cycle.
-        /// Base weights come from desired counts (normalized by GCD). Filters that are
-        /// behind their ideal allocation by 0.5+ frames get extra weight equal to their
-        /// deficit (rounded), blending catch-up into the rotation pattern. Sub-half-frame
-        /// deficits are ignored so the cycle converges cleanly to the base weights.
+        /// Selects the next filter from a clean weighted rotation cycle using base
+        /// weights only (no deficit adjustment). Called only when all filters are
+        /// within 1 frame of their ideal allocation, so the cycle maintains balance
+        /// without correction.
         ///
-        /// For L:300, R:100, G:100, B:100 with B 3.2 frames behind:
-        ///   Base weights:     [3, 1, 1, 1]
-        ///   Deficit adjust:   [0, 0, 0, +3]  (round(3.2) = 3)
-        ///   Adjusted weights: [3, 1, 1, 4]
-        ///   Cycle: L,L,L,R,G,B,B,B,B (length 9)
+        /// For L:300, R:100, G:100, B:100:
+        ///   Base weights: [3, 1, 1, 1]
+        ///   Cycle: L,L,L,R,G,B (length 6)
         ///
         /// When FilterSwitchFrequency > 1, each weight is scaled by FSF for block shooting.
         /// </summary>
@@ -182,17 +196,8 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 baseWeights = baseWeights.Select(w => Math.Max(1, w / divisor)).ToArray();
             }
 
-            // Add deficit adjustment: filters behind ideal get extra weight
-            int[] adjustedWeights = new int[eligible.Count];
-            bool hasDeficit = false;
-            for (int i = 0; i < eligible.Count; i++) {
-                int extra = deficits[i] >= 0.5 ? (int)Math.Round(deficits[i]) : 0;
-                adjustedWeights[i] = baseWeights[i] + extra;
-                if (extra > 0) hasDeficit = true;
-            }
-
             // Scale by FilterSwitchFrequency for block shooting
-            int[] blockWeights = adjustedWeights.Select(w => w * filterSwitchFrequency).ToArray();
+            int[] blockWeights = baseWeights.Select(w => w * filterSwitchFrequency).ToArray();
             int cycleLength = blockWeights.Sum();
 
             // Reset index on candidate set change
@@ -214,13 +219,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
             _weightedRotationIndex = (_weightedRotationIndex + 1) % cycleLength;
 
-            if (hasDeficit) {
-                // Log adjusted weights when deficit correction is active
-                string weightsStr = string.Join(",", eligible.Select((e, i) => $"{e.FilterName}={adjustedWeights[i]}"));
-                TSLogger.Info($"ratio selector: deficit-adjusted rotation [{weightsStr}] -> {selected.FilterName}");
-            } else {
-                TSLogger.Debug($"ratio selector: weighted rotation -> {selected.FilterName}");
-            }
+            TSLogger.Debug($"ratio selector: weighted rotation -> {selected.FilterName}");
 
             return selected;
         }

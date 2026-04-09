@@ -329,32 +329,30 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         }
 
         // =====================================================================
-        // Deficit-Adjusted Rotation Tests
+        // Two-Phase (Catch-Up + Rotation) Tests
         // =====================================================================
 
         [Test]
-        public void testDeficitAdjustsWeights() {
+        public void testCatchUpPicksMostBehind() {
             // L=130/300=0.433, R=50/100=0.500 -> L is behind
             // Total=180, L ideal=180*300/400=135, L actual=130, deficit=5
-            // Base weights [3,1], adjusted [3+5, 1] = [8, 1], cycle length 9
-            // Should start at L (most behind) and give L extra frames
+            // Deficit >= 1 -> Phase 1 catch-up -> always picks L (most behind)
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 130));
             candidates.Add(MakeExposure("R", 100, 50));
 
-            // First 8 should be L (adjusted weight 8), then R
-            for (int i = 0; i < 8; i++) {
+            // With frozen counts, catch-up always picks L (deficit=5 stays >= 1)
+            for (int i = 0; i < 5; i++) {
                 IExposure result = sut.Select(candidates);
-                result.FilterName.Should().Be("L", $"iteration {i}: L should get extra frames for deficit");
+                result.FilterName.Should().Be("L", $"iteration {i}: L is most behind, catch-up should pick it");
             }
-            sut.Select(candidates).FilterName.Should().Be("R", "R gets its turn after L's adjusted block");
         }
 
         [Test]
         public void testBalancedUsesBaseWeights() {
-            // L=150/300=0.500, R=50/100=0.500, spread=0, no deficit -> base weights only
+            // L=150/300=0.500, R=50/100=0.500, spread=0, no deficit -> Phase 2 rotation
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
             List<IExposure> candidates = new List<IExposure>();
@@ -373,12 +371,12 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         [Test]
         public void testMultipleFiltersBehind() {
             // L=300, R=100, G=100, B=100. R and B are behind.
-            // Total=240, R ideal=240*100/600=40, R actual=30, deficit=10
-            // B ideal=40, B actual=25, deficit=15
-            // L ideal=240*300/600=120, L actual=120, deficit=0
-            // G ideal=40, G actual=65 -> ahead (deficit negative, no adjustment)
-            // Base weights [3,1,1,1], adjusted [3, 1+10, 1, 1+15] = [3, 11, 1, 16]
-            // B is most behind -> starts at B's position
+            // Total=240, R ideal=40, actual=30, deficit=10
+            // B ideal=40, actual=25, deficit=15
+            // L ideal=120, actual=120, deficit=0
+            // G ideal=40, actual=65 -> ahead
+            // Both R(10) and B(15) have deficit >= 1 -> Phase 1 catch-up
+            // B is most behind -> picks B
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 120));
             candidates.Add(MakeExposure("R", 100, 30));
@@ -387,16 +385,16 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
-            // B is most behind, should start with B and get lots of frames
+            // B has largest deficit (15), catch-up picks B
             IExposure first = sut.Select(candidates);
-            first.FilterName.Should().Be("B", "B has the largest deficit, should start there");
+            first.FilterName.Should().Be("B", "B has the largest deficit, catch-up should pick it");
         }
 
         [Test]
-        public void testSmallDeficitGetsOneExtraFrame() {
-            // R is 0.83 frames behind -> round(0.83) = 1 extra frame
-            // Total=299, R ideal=299*100/600=49.83, R actual=49, deficit=0.83 -> round=1
-            // Base [3,1,1,1], adjusted [3,2,1,1]
+        public void testSmallDeficitUsesRotation() {
+            // R is 0.83 frames behind -> deficit < 1.0 -> Phase 2 rotation
+            // Total=299, R ideal=49.83, actual=49, deficit=0.83
+            // Rotation starts at R (most behind via FindStartIndex)
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 150));
             candidates.Add(MakeExposure("R", 100, 49));
@@ -404,9 +402,42 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 100, 50));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            // R is behind, starts at R position. Adjusted weights [3,2,1,1] -> R gets 2 frames
+            // R is slightly behind but < 1 frame -> rotation, starts at R's position
             IExposure first = sut.Select(candidates);
-            first.FilterName.Should().Be("R", "R has deficit, rotation should start there");
+            first.FilterName.Should().Be("R", "R is most behind, rotation starts there");
+
+            // Continue rotation: should follow base [3,1,1,1] pattern from R's position
+            // After R, next positions are G, B, then cycle wraps to L,L,L
+            sut.Select(candidates).FilterName.Should().Be("G");
+            sut.Select(candidates).FilterName.Should().Be("B");
+            sut.Select(candidates).FilterName.Should().Be("L");
+            sut.Select(candidates).FilterName.Should().Be("L");
+            sut.Select(candidates).FilterName.Should().Be("L");
+        }
+
+        [Test]
+        public void testCatchUpToRotationTransition() {
+            // Verify behavior changes when deficit crosses 1-frame threshold
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            // Phase 1: R deficit=2 -> catch-up picks R
+            List<IExposure> behindCandidates = new List<IExposure>();
+            behindCandidates.Add(MakeExposure("L", 300, 150));
+            behindCandidates.Add(MakeExposure("R", 100, 48));
+            behindCandidates.Add(MakeExposure("G", 100, 50));
+            behindCandidates.Add(MakeExposure("B", 100, 50));
+            sut.Select(behindCandidates).FilterName.Should().Be("R", "Phase 1: catch-up picks R (deficit=2)");
+
+            // Phase 2: R deficit=0.5 -> rotation (FindStartIndex starts at R)
+            List<IExposure> nearBalancedCandidates = new List<IExposure>();
+            nearBalancedCandidates.Add(MakeExposure("L", 300, 150));
+            nearBalancedCandidates.Add(MakeExposure("R", 100, 49));
+            nearBalancedCandidates.Add(MakeExposure("G", 100, 50));
+            nearBalancedCandidates.Add(MakeExposure("B", 100, 50));
+            sut.Select(nearBalancedCandidates).FilterName.Should().Be("R", "Phase 2: rotation starts at R (most behind)");
+            sut.Select(nearBalancedCandidates).FilterName.Should().Be("G", "Phase 2: rotation continues G");
+            sut.Select(nearBalancedCandidates).FilterName.Should().Be("B", "Phase 2: rotation continues B");
+            sut.Select(nearBalancedCandidates).FilterName.Should().Be("L", "Phase 2: rotation continues L");
         }
 
         // =====================================================================
@@ -454,7 +485,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
 
         [Test]
         public void testStartsWithMostBehindFilter() {
-            // R is 2 frames behind, rotation should start at R's adjusted block
+            // R deficit=2 >= 1 -> catch-up picks R
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 147));
             candidates.Add(MakeExposure("R", 100, 47));
@@ -464,12 +495,12 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             IExposure result = sut.Select(candidates);
             result.Should().NotBeNull();
-            result.FilterName.Should().Be("R", "should start rotation at the most-behind filter");
+            result.FilterName.Should().Be("R", "R has deficit >= 1, catch-up should pick it");
         }
 
         [Test]
         public void testBlockShootingStartsWithMostBehindFilter() {
-            // Same concept but with FSF=5: should start at R's block
+            // R deficit=2 >= 1 -> catch-up picks R regardless of FSF
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 147));
             candidates.Add(MakeExposure("R", 100, 47));
@@ -479,11 +510,11 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100), filterSwitchFrequency: 5);
             IExposure result = sut.Select(candidates);
             result.Should().NotBeNull();
-            result.FilterName.Should().Be("R", "block rotation should start at the most-behind filter's block");
+            result.FilterName.Should().Be("R", "catch-up should pick most-behind filter regardless of FSF");
 
-            // Should stay on R for at least FSF calls (R has extra deficit weight)
+            // Catch-up continues picking R (frozen counts, deficit still >= 1)
             for (int i = 1; i < 5; i++) {
-                sut.Select(candidates).FilterName.Should().Be("R", $"should stay in R block, call {i+1}");
+                sut.Select(candidates).FilterName.Should().Be("R", $"catch-up continues, call {i+1}");
             }
         }
 
@@ -507,14 +538,14 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         }
 
         // =====================================================================
-        // Catch-Up Tests
+        // Catch-Up Scenario Tests
         // =====================================================================
 
         [Test]
         public void testCatchUpMoonAvoidanceScenario() {
             // Simulates O being blocked by moon while H and S accumulate
             // H=50/100=0.50, S=50/100=0.50, O=5/100=0.05
-            // O is way behind, should be forced in catch-up
+            // O deficit massive (>= 1) -> Phase 1 catch-up picks O
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("H", 100, 50));
             candidates.Add(MakeExposure("S", 100, 50));
