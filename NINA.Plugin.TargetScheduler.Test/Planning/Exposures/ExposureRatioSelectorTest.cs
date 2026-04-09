@@ -329,52 +329,84 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         }
 
         // =====================================================================
-        // Hysteresis Tests
+        // Deficit-Adjusted Rotation Tests
         // =====================================================================
 
         [Test]
-        public void testCatchUpAboveDeadBand() {
-            // L=130/300=0.433, R=50/100=0.500, spread=0.067 > 0.05 -> catch-up L
+        public void testDeficitAdjustsWeights() {
+            // L=130/300=0.433, R=50/100=0.500 -> L is behind
+            // Total=180, L ideal=180*300/400=135, L actual=130, deficit=5
+            // Base weights [3,1], adjusted [3+5, 1] = [8, 1], cycle length 9
+            // Should start at L (most behind) and give L extra frames
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 130));
             candidates.Add(MakeExposure("R", 100, 50));
-            IExposure result = sut.Select(candidates);
-            result.FilterName.Should().Be("L");
+
+            // First 8 should be L (adjusted weight 8), then R
+            for (int i = 0; i < 8; i++) {
+                IExposure result = sut.Select(candidates);
+                result.FilterName.Should().Be("L", $"iteration {i}: L should get extra frames for deficit");
+            }
+            sut.Select(candidates).FilterName.Should().Be("R", "R gets its turn after L's adjusted block");
         }
 
         [Test]
-        public void testWithinDeadBandUsesWeightedRotation() {
-            // L=140/300=0.467, R=50/100=0.500, spread=0.033 < 0.05 -> weighted rotation
-            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-
-            List<IExposure> candidates = new List<IExposure>();
-            candidates.Add(MakeExposure("L", 300, 140));
-            candidates.Add(MakeExposure("R", 100, 50));
-
-            // Within dead band, unequal desired -> weighted rotation (L,L,L,R)
-            IExposure result = sut.Select(candidates);
-            result.Should().NotBeNull();
-            result.FilterName.Should().Be("L", "should use weighted rotation when within dead band");
-        }
-
-        [Test]
-        public void testBalancedUsesWeightedRotation() {
-            // L=150/300=0.500, R=50/100=0.500, spread=0 -> weighted rotation
+        public void testBalancedUsesBaseWeights() {
+            // L=150/300=0.500, R=50/100=0.500, spread=0, no deficit -> base weights only
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 150));
             candidates.Add(MakeExposure("R", 100, 50));
 
-            // Should produce weighted rotation: L,L,L,R
+            // Should produce base weighted rotation: L,L,L,R
             string[] expected = { "L", "L", "L", "R" };
             for (int i = 0; i < expected.Length; i++) {
                 IExposure result = sut.Select(candidates);
                 result.Should().NotBeNull($"iteration {i}");
                 result.FilterName.Should().Be(expected[i], $"iteration {i}");
             }
+        }
+
+        [Test]
+        public void testMultipleFiltersBehind() {
+            // L=300, R=100, G=100, B=100. R and B are behind.
+            // Total=240, R ideal=240*100/600=40, R actual=30, deficit=10
+            // B ideal=40, B actual=25, deficit=15
+            // L ideal=240*300/600=120, L actual=120, deficit=0
+            // G ideal=40, G actual=65 -> ahead (deficit negative, no adjustment)
+            // Base weights [3,1,1,1], adjusted [3, 1+10, 1, 1+15] = [3, 11, 1, 16]
+            // B is most behind -> starts at B's position
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 120));
+            candidates.Add(MakeExposure("R", 100, 30));
+            candidates.Add(MakeExposure("G", 100, 65));
+            candidates.Add(MakeExposure("B", 100, 25));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            // B is most behind, should start with B and get lots of frames
+            IExposure first = sut.Select(candidates);
+            first.FilterName.Should().Be("B", "B has the largest deficit, should start there");
+        }
+
+        [Test]
+        public void testSmallDeficitGetsOneExtraFrame() {
+            // R is 0.8 frames behind -> ceil(0.8) = 1 extra frame
+            // Total=200, R ideal=200*100/400=50, R actual=49, deficit=1.0 -> ceil=1
+            // Base [3,1,1,1], adjusted [3,2,1,1]
+            List<IExposure> candidates = new List<IExposure>();
+            candidates.Add(MakeExposure("L", 300, 150));
+            candidates.Add(MakeExposure("R", 100, 49));
+            candidates.Add(MakeExposure("G", 100, 50));
+            candidates.Add(MakeExposure("B", 100, 50));
+
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+            // R is behind, starts at R position. Adjusted weights [3,2,1,1] -> R gets 2 frames
+            IExposure first = sut.Select(candidates);
+            first.FilterName.Should().Be("R", "R has deficit, rotation should start there");
         }
 
         // =====================================================================
@@ -421,19 +453,8 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         }
 
         [Test]
-        public void testWeightedRotationStartsWithMostBehindFilter() {
-            // R is most behind (deficit positive), rotation should start with R's block
-            // L:300 accepted=150 (ratio 0.500), R:100 accepted=30 (ratio 0.300)
-            // G:100 accepted=50 (ratio 0.500), B:100 accepted=50 (ratio 0.500)
-            // Total=280, R ideal=280*100/600=46.7, R actual=30, deficit=16.7
-            // Spread=0.200 but cycle length=6, deficit 16.7 > 6 → catch-up fires.
-            //
-            // Use a case where deficit < cycle length so weighted rotation runs:
-            // L:300 accepted=147, R:100 accepted=47, G:100 accepted=50, B:100 accepted=50
-            // Total=294, R ideal=294*100/600=49.0, R actual=47, deficit=2.0
-            // L ideal=294*300/600=147.0, L actual=147, deficit=0
-            // Spread: max=0.500 (G,B), min=0.470 (R), spread=0.030 < catch-up threshold
-            // R is most behind → rotation should start at R's position, not L's
+        public void testStartsWithMostBehindFilter() {
+            // R is 2 frames behind, rotation should start at R's adjusted block
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 300, 147));
             candidates.Add(MakeExposure("R", 100, 47));
@@ -460,7 +481,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             result.Should().NotBeNull();
             result.FilterName.Should().Be("R", "block rotation should start at the most-behind filter's block");
 
-            // Should stay on R for FSF=5 calls
+            // Should stay on R for at least FSF calls (R has extra deficit weight)
             for (int i = 1; i < 5; i++) {
                 sut.Select(candidates).FilterName.Should().Be("R", $"should stay in R block, call {i+1}");
             }
