@@ -71,17 +71,18 @@
   </ItemGroup>
 
   <!--
-    Guard: refuse to deploy unless AssemblyInfo carries the CUSTOM FORK marker.
-    Prevents a non-fork branch (e.g. a fresh worktree off upstream main) from
-    silently overwriting the custom plugin in NINA's plugin folder via PostBuild.
-    Source-of-truth check at build time — fires for every dotnet build / IDE build.
+    Guard: refuse to compile unless AssemblyInfo carries the CUSTOM FORK marker.
+    Fires BeforeBuild so wrong-branch builds fail before any DLL is produced —
+    bin/Release stays empty, %LOCALAPPDATA%\NINA\Plugins stays untouched, and
+    no stripped DLL exists anywhere to be copied to the rig by hand.
+    Source-of-truth check, branch-agnostic, fires for every dotnet build / IDE build.
   -->
-  <Target Name="EnsureCustomForkMarker" BeforeTargets="PostBuild">
+  <Target Name="EnsureCustomForkMarker" BeforeTargets="BeforeBuild">
     <PropertyGroup>
       <_AsmInfo>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Properties\AssemblyInfo.cs'))</_AsmInfo>
     </PropertyGroup>
     <Error Condition="!$(_AsmInfo.Contains('CUSTOM FORK'))"
-           Text="Refusing to deploy: AssemblyInfo missing 'CUSTOM FORK' marker. Branch is not the fork — building this would clobber the custom Target Scheduler plugin in NINA's plugin folder. Switch to fork/main (or a descendant) before building." />
+           Text="Refusing to build: AssemblyInfo missing 'CUSTOM FORK' marker. Branch is not the fork — compiling this would produce a stripped DLL that could be copied over the custom plugin. Switch to fork/main (or a descendant) before building." />
   </Target>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
