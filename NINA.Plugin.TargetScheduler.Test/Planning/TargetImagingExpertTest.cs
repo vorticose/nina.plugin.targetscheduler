@@ -313,6 +313,40 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
         }
 
         [Test]
+        public void testExposureTwilightFilterNegativeOffset() {
+            // Regression: negative MinutesOffset (e.g. -5 to start 5 min before nighttime)
+            // previously skipped the offset-aware check because the condition was `offset > 0`.
+            // Result: exposures with negative offsets were never rejected for twilight.
+            // Fix: `offset != 0` so negative offsets exercise CheckTwilightWithOffset.
+            IProfile profile = GetProfileService();
+            DateTime atTime = new DateTime(2025, 7, 9, 12, 0, 0);
+            TwilightCircumstances tc = TwilightCircumstances.AdjustTwilightCircumstances(TestData.North_Mid_Lat, atTime);
+
+            IExposure e1 = PlanMocks.GetMockPlanExposure("L", 10, 0).Object;
+            e1.TwilightLevel = TwilightLevel.Nighttime;
+            e1.MinutesOffset = -5;
+
+            TargetImagingExpert sut = new TargetImagingExpert(profile, GetPrefs(), false);
+            DateTime nightStart = (DateTime)tc.NighttimeStart;
+
+            // 6 min before nighttime: outside -5 window -> reject
+            sut.ExposureTwilightFilter(e1, nightStart.AddMinutes(-6), tc, TwilightLevel.Astronomical);
+            e1.Rejected.Should().BeTrue();
+            e1.RejectedReason.Should().Be(Reasons.FilterTwilight);
+
+            e1.Rejected = false;
+            e1.RejectedReason = null;
+
+            // 4 min before nighttime: within -5 window -> allow
+            sut.ExposureTwilightFilter(e1, nightStart.AddMinutes(-4), tc, TwilightLevel.Astronomical);
+            e1.Rejected.Should().BeFalse();
+
+            // well into nighttime: allow
+            sut.ExposureTwilightFilter(e1, nightStart.AddMinutes(10), tc, TwilightLevel.Nighttime);
+            e1.Rejected.Should().BeFalse();
+        }
+
+        [Test]
         public void testHumidityFilter() {
             IProfile profile = GetProfileService();
             DateTime atTime = new DateTime(2025, 1, 1, 20, 0, 0);

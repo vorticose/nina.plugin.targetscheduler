@@ -232,7 +232,7 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                 SetRejected(exposure, Reasons.FilterTwilight);
             }
 
-            if (offset > 0 && !twilightCircumstances.CheckTwilightWithOffset(atTime, exposure.TwilightLevel, offset)) {
+            if (offset != 0 && !twilightCircumstances.CheckTwilightWithOffset(atTime, exposure.TwilightLevel, offset)) {
                 SetRejected(exposure, Reasons.FilterTwilight);
             }
         }
