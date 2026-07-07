@@ -28,22 +28,30 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         public DitherManager(int ditherEvery) {
             this.ditherEvery = ditherEvery;
             exposureStack = new Stack<IExposure>();
+            TSLogger.Info($"DITHER-DIAG: new DitherManager created with ditherEvery={ditherEvery} (hash={GetHashCode()})");
         }
 
         public void AddExposure(IExposure exposure) {
             exposureStack.Push(exposure);
+            TSLogger.Info($"DITHER-DIAG: AddExposure filter={exposure.FilterName}; stack now depth={exposureStack.Count} " +
+                $"[{string.Join(",", exposureStack.Select(e => e.FilterName))}] (hash={GetHashCode()})");
         }
 
         public bool DitherRequired(IExposure nextExposure) {
             int? ditherOverride = GetExposureDitherOverride(nextExposure);
             int dither = ditherOverride.HasValue ? ditherOverride.Value : ditherEvery;
 
-            if (dither == 0) { return false; }
             int count = exposureStack.Count(item => item.FilterName == nextExposure.FilterName);
+            bool required = dither != 0 && count >= dither;
+            TSLogger.Info($"DITHER-DIAG: DitherRequired? filter={nextExposure.FilterName} exposure.DitherEvery={nextExposure.DitherEvery} " +
+                $"override={(ditherOverride.HasValue ? ditherOverride.Value.ToString() : "none")} effectiveDither={dither} " +
+                $"sameFilterCount={count} stackDepth={exposureStack.Count} => {required} (hash={GetHashCode()})");
+            if (dither == 0) { return false; }
             return count >= dither;
         }
 
         public void Reset() {
+            TSLogger.Info($"DITHER-DIAG: Reset() clearing stack (was depth={exposureStack.Count}) (hash={GetHashCode()})");
             exposureStack.Clear();
         }
 
@@ -65,6 +73,29 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         private static MemoryCache _cache = Create();
         private static object lockObj = new object();
 
+        // Preview isolation: plan previews (TS API /preview endpoint, Plan Preview UI,
+        // Plan Explainer) simulate the night by calling ExposureTaken/TargetReset on the
+        // exposure selectors — which read DitherManagers from THIS shared cache. Without
+        // isolation a background preview (e.g. another plugin polling the TS API) mutates
+        // the LIVE dither stacks mid-session, corrupting dither cadence (observed as a
+        // full night of same-filter subs with zero dithers). While a thread is inside a
+        // preview context, all cache operations are redirected to a thread-local scratch
+        // cache; the live cache is untouched. Preview runs are synchronous on one thread,
+        // so [ThreadStatic] is sufficient.
+        [ThreadStatic] private static Dictionary<string, DitherManager> previewCache;
+
+        public static bool IsPreviewContext => previewCache != null;
+
+        public static void EnterPreviewContext() {
+            previewCache = new Dictionary<string, DitherManager>();
+            TSLogger.Info("DITHER-DIAG: entered PREVIEW dither-cache context (live cache isolated)");
+        }
+
+        public static void ExitPreviewContext() {
+            previewCache = null;
+            TSLogger.Info("DITHER-DIAG: exited PREVIEW dither-cache context");
+        }
+
         public static string GetCacheKey(Target target) {
             return $"{target.Id}";
         }
@@ -74,12 +105,19 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         public static DitherManager Get(string cacheKey) {
+            if (previewCache != null) {
+                return previewCache.TryGetValue(cacheKey, out var pm) ? pm : null;
+            }
             lock (lockObj) {
                 return (DitherManager)_cache.Get(cacheKey);
             }
         }
 
         public static void Put(DitherManager ditherManager, string cacheKey) {
+            if (previewCache != null) {
+                previewCache[cacheKey] = ditherManager;
+                return;
+            }
             lock (lockObj) {
                 _cache.Add(cacheKey, ditherManager, DateTime.Now.Add(ITEM_TIMEOUT));
             }
@@ -101,12 +139,22 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         public static void Remove(string cacheKey) {
+            if (previewCache != null) {
+                previewCache.Remove(cacheKey);
+                return;
+            }
+            TSLogger.Info($"DITHER-DIAG: LIVE dither cache Remove key={cacheKey}");
             lock (lockObj) {
                 _cache.Remove(cacheKey);
             }
         }
 
         public static void Clear() {
+            if (previewCache != null) {
+                previewCache.Clear();
+                return;
+            }
+            TSLogger.Info("DITHER-DIAG: LIVE dither cache Clear (all dither state wiped)");
             lock (lockObj) {
                 _cache.Dispose();
                 _cache = Create();

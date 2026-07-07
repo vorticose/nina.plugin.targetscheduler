@@ -2,6 +2,7 @@
 using NINA.Plugin.TargetScheduler.Database;
 using NINA.Plugin.TargetScheduler.Database.Schema;
 using NINA.Plugin.TargetScheduler.Planning.Interfaces;
+using NINA.Plugin.TargetScheduler.Shared.Utility;
 using System.Collections.Generic;
 
 namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
@@ -26,8 +27,10 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             string cacheKey = DitherManagerCache.GetCacheKey(target);
             DitherManager dm = DitherManagerCache.Get(cacheKey);
             if (dm != null) {
+                TSLogger.Info($"DITHER-DIAG: GetDitherManager cache HIT key={cacheKey} project.DitherEvery={project.DitherEvery} (hash={dm.GetHashCode()})");
                 return dm;
             } else {
+                TSLogger.Info($"DITHER-DIAG: GetDitherManager cache MISS key={cacheKey} -> creating new with project.DitherEvery={project.DitherEvery}");
                 dm = new DitherManager(project.DitherEvery);
                 DitherManagerCache.Put(dm, cacheKey);
                 return dm;

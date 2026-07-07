@@ -33,6 +33,14 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         public List<SchedulerPlan> GetPlanPreview(DateTime atTime, IProfileService profileService, ProfilePreference profilePreferences, List<IProject> projects) {
             TSLogger.Info("-- BEGIN PLAN PREVIEW ----------------------------------------------------------");
 
+            // Isolate ALL dither-cache access for the duration of the preview. Previously
+            // the Clear() below wiped the LIVE dither cache and the simulation loop then
+            // left live stacks in simulated end-of-night state — so any preview during an
+            // active session (Plan Preview UI, TS API /preview polled by other plugins)
+            // corrupted live dither cadence. Inside the context, Clear() and all
+            // Get/Put/Remove operate on a thread-local scratch cache only.
+            DitherManagerCache.EnterPreviewContext();
+
             DitherManagerCache.Clear();
             List<SchedulerPlan> plans = new List<SchedulerPlan>();
             IWeatherDataMediator weatherData = new DisconnectedWeatherDataMediator();
@@ -52,6 +60,7 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                 TSLogger.Error($"exception during plan preview: {ex.Message}\n{ex.StackTrace}");
                 return plans;
             } finally {
+                DitherManagerCache.ExitPreviewContext();
                 TSLogger.Info("-- END PLAN PREVIEW ------------------------------------------------------------");
             }
         }

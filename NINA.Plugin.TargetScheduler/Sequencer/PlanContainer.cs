@@ -322,7 +322,7 @@ namespace NINA.Plugin.TargetScheduler.Sequencer {
         }
 
         private void AddDither() {
-            TSLogger.Debug("adding dither");
+            TSLogger.Info("DITHER-DIAG: AddDither -> injecting NINA Dither instruction into plan container");
             Dither dither = new Dither(guiderMediator, profileService);
             Add(dither);
         }
