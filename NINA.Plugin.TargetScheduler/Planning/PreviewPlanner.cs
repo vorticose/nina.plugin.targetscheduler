@@ -33,13 +33,14 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         public List<SchedulerPlan> GetPlanPreview(DateTime atTime, IProfileService profileService, ProfilePreference profilePreferences, List<IProject> projects) {
             TSLogger.Info("-- BEGIN PLAN PREVIEW ----------------------------------------------------------");
 
-            // Isolate ALL dither-cache access for the duration of the preview. Previously
-            // the Clear() below wiped the LIVE dither cache and the simulation loop then
-            // left live stacks in simulated end-of-night state — so any preview during an
-            // active session (Plan Preview UI, TS API /preview polled by other plugins)
-            // corrupted live dither cadence. Inside the context, Clear() and all
-            // Get/Put/Remove operate on a thread-local scratch cache only.
-            DitherManagerCache.EnterPreviewContext();
+            // Isolate ALL live sequencing state for the duration of the preview.
+            // Previously the Clear() below wiped the LIVE dither cache and the simulation
+            // loop then mutated live dither stacks, smart-rotation counts, and even
+            // persisted filter-cadence DB rows — so any preview during an active session
+            // (Plan Preview UI, TS API /preview polled by other plugins) corrupted live
+            // sequencing. Inside the context, both caches redirect to thread-local
+            // scratch storage and cadence DB writes are skipped. See PreviewContext.
+            PreviewContext.Enter();
 
             DitherManagerCache.Clear();
             List<SchedulerPlan> plans = new List<SchedulerPlan>();
@@ -60,7 +61,7 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                 TSLogger.Error($"exception during plan preview: {ex.Message}\n{ex.StackTrace}");
                 return plans;
             } finally {
-                DitherManagerCache.ExitPreviewContext();
+                PreviewContext.Exit();
                 TSLogger.Info("-- END PLAN PREVIEW ------------------------------------------------------------");
             }
         }

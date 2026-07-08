@@ -121,6 +121,22 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         private static MemoryCache _cache = Create();
         private static object lockObj = new object();
 
+        // Preview isolation: plan previews drive ExposureTaken/Reset on the same
+        // selectors as live planning, which mutate this cache's rotation counts.
+        // Without isolation a background preview (TS API /preview, Plan Preview UI)
+        // corrupts live filter rotation mid-session (observed as one filter repeating
+        // instead of rotating). Inside a preview context all operations are redirected
+        // to a thread-local scratch cache. See PreviewContext.
+        [ThreadStatic] private static Dictionary<string, ExposureRotateStatus> previewCache;
+
+        public static void EnterPreviewContext() {
+            previewCache = new Dictionary<string, ExposureRotateStatus>();
+        }
+
+        public static void ExitPreviewContext() {
+            previewCache = null;
+        }
+
         public static string GetCacheKey(Target target) {
             return target.Id.ToString();
         }
@@ -130,12 +146,19 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         public static ExposureRotateStatus Get(ITarget target) {
+            if (previewCache != null) {
+                return previewCache.TryGetValue(GetCacheKey(target), out var ps) ? ps : null;
+            }
             lock (lockObj) {
                 return (ExposureRotateStatus)_cache.Get(GetCacheKey(target));
             }
         }
 
         public static void Put(ITarget target, ExposureRotateStatus exposureRotateStatus) {
+            if (previewCache != null) {
+                previewCache[GetCacheKey(target)] = exposureRotateStatus;
+                return;
+            }
             lock (lockObj) {
                 _cache.Add(GetCacheKey(target), exposureRotateStatus, DateTime.Now.Add(ITEM_TIMEOUT));
             }
@@ -157,12 +180,20 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         public static void Remove(string cacheKey) {
+            if (previewCache != null) {
+                previewCache.Remove(cacheKey);
+                return;
+            }
             lock (lockObj) {
                 _cache.Remove(cacheKey);
             }
         }
 
         public static void Clear() {
+            if (previewCache != null) {
+                previewCache.Clear();
+                return;
+            }
             lock (lockObj) {
                 _cache.Dispose();
                 _cache = Create();

@@ -54,6 +54,13 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         /// </summary>
         /// <param name="filterCadence"></param>
         public void UpdateFilterCadences(FilterCadence filterCadence) {
+            // Previews simulate ExposureTaken, which advances the cadence — persisting
+            // that would durably corrupt the LIVE filter order in the database. Skip.
+            if (PreviewContext.IsActive) {
+                TSLogger.Debug("PREVIEW-ISOLATION: skipping filter-cadence DB write during preview");
+                return;
+            }
+
             List<FilterCadenceItem> items = new List<FilterCadenceItem>(filterCadence.Count);
             filterCadence.List.ForEach(fci => {
                 items.Add(new FilterCadenceItem {
