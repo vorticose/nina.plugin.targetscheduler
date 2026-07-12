@@ -2,7 +2,9 @@
 using Newtonsoft.Json.Converters;
 using NINA.Astrometry;
 using NINA.Plugin.TargetScheduler.Planning;
+using NINA.Plugin.TargetScheduler.Shared.Utility;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.Caching;
 using System.Text;
@@ -160,6 +162,14 @@ namespace NINA.Plugin.TargetScheduler.Astrometry {
             AstronomicalTwilightEnd = nautical.Rise;
             NighttimeStart = astro.Set;
             NighttimeEnd = astro.Rise;
+
+            // TWILIGHT-DIAG: log every fresh (non-cached) calculation so a bad/stale
+            // recompute (e.g. after the 12h cache entry expires mid-session) is visible
+            // in the log instead of only showing up as an unexplained scheduling delay.
+            TSLogger.Debug($"TWILIGHT-DIAG: calculated for OnDate={OnDate:yyyy-MM-dd} preview={PreviewContext.IsActive} " +
+                $"lat={observerInfo.Latitude.ToString("0.000000", CultureInfo.InvariantCulture)} " +
+                $"lon={observerInfo.Longitude.ToString("0.000000", CultureInfo.InvariantCulture)} " +
+                $"nighttimeStart={NighttimeStart:yyyy-MM-dd HH:mm:ss} nighttimeEnd={NighttimeEnd:yyyy-MM-dd HH:mm:ss}");
         }
 
         public override string ToString() {
@@ -195,13 +205,52 @@ namespace NINA.Plugin.TargetScheduler.Astrometry {
     internal class TwilightCircumstancesCache {
         private static readonly TimeSpan ITEM_TIMEOUT = TimeSpan.FromHours(12);
         private static readonly MemoryCache _cache = new MemoryCache("Scheduler TwilightCircumstances");
+        private static readonly object lockObj = new object();
+
+        // Preview isolation: like DitherManagerCache/SmartExposureRotateCache, this is a
+        // static cache shared by every caller on the process - including plan previews
+        // (TS API /preview endpoint polled by other plugins, Plan Preview UI, Plan
+        // Explainer). A preview walks through many synthetic 'atTime' values spanning
+        // hours/days ahead on a background/API thread, concurrently with the live
+        // sequencer thread computing the SAME night's circumstances. MemoryCache.Add()
+        // only writes when the key is absent, so this isn't a last-write-wins overwrite
+        // race - but a preview run computing the live night's entry FIRST (or racing the
+        // live thread's first calculation right as the previous 12h entry expires) can
+        // still be the one that wins the Add() and permanently seeds the live cache for
+        // the next 12 hours. Route preview-thread reads/writes to thread-local scratch
+        // storage instead, exactly like the other two caches, so a preview can never
+        // seed or clobber the entry the live sequencer depends on.
+        [ThreadStatic] private static Dictionary<string, TwilightCircumstances> previewCache;
+
+        public static bool IsPreviewContext => previewCache != null;
+
+        public static void EnterPreviewContext() {
+            previewCache = new Dictionary<string, TwilightCircumstances>();
+            TSLogger.Info("TWILIGHT-DIAG: entered PREVIEW twilight-cache context (live cache isolated)");
+        }
+
+        public static void ExitPreviewContext() {
+            previewCache = null;
+            TSLogger.Info("TWILIGHT-DIAG: exited PREVIEW twilight-cache context");
+        }
 
         public static TwilightCircumstances Get(string cacheKey) {
-            return (TwilightCircumstances)_cache.Get(cacheKey);
+            if (previewCache != null) {
+                return previewCache.TryGetValue(cacheKey, out var tc) ? tc : null;
+            }
+            lock (lockObj) {
+                return (TwilightCircumstances)_cache.Get(cacheKey);
+            }
         }
 
         public static void Put(TwilightCircumstances nighttimeCircumstances, string cacheKey) {
-            _cache.Add(cacheKey, nighttimeCircumstances, DateTime.Now.Add(ITEM_TIMEOUT));
+            if (previewCache != null) {
+                previewCache[cacheKey] = nighttimeCircumstances;
+                return;
+            }
+            lock (lockObj) {
+                _cache.Add(cacheKey, nighttimeCircumstances, DateTime.Now.Add(ITEM_TIMEOUT));
+            }
         }
 
         private TwilightCircumstancesCache() {
