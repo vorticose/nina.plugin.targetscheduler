@@ -12,8 +12,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
     /// </summary>
     public class RepeatUntilDoneExposureSelector : BaseExposureSelector, IExposureSelector {
 
-        public RepeatUntilDoneExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(target) {
-            DitherManager = GetDitherManager(project, target);
+        public RepeatUntilDoneExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(project, target) {
         }
 
         public IExposure Select(DateTime atTime, IProject project, ITarget target) {

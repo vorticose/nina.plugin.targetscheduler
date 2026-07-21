@@ -11,7 +11,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
     /// </summary>
     public class OverrideOrderExposureSelector : BaseExposureSelector, IExposureSelector {
 
-        public OverrideOrderExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(target) {
+        public OverrideOrderExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(project, target) {
             FilterCadence = new FilterCadenceFactory().Generate(project, target, databaseTarget);
         }
 

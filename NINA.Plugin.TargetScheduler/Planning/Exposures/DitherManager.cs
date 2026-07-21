@@ -25,19 +25,28 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         private Stack<IExposure> exposureStack;
         private int ditherEvery;
 
+        // True if this manager was created while a plan preview was running. A LIVE manager
+        // (false) must NEVER be mutated while a preview is active, and a PREVIEW manager (true)
+        // must never be mutated during live execution — either means preview/live isolation has
+        // broken. CheckIsolation turns that (historically silent) corruption into a loud log line.
+        private readonly bool createdInPreview;
+
         public DitherManager(int ditherEvery) {
             this.ditherEvery = ditherEvery;
             exposureStack = new Stack<IExposure>();
-            TSLogger.Info($"DITHER-DIAG: new DitherManager created with ditherEvery={ditherEvery} (hash={GetHashCode()})");
+            createdInPreview = PreviewContext.IsActive;
+            TSLogger.Info($"DITHER-DIAG: new DitherManager created with ditherEvery={ditherEvery} preview={createdInPreview} (hash={GetHashCode()})");
         }
 
         public void AddExposure(IExposure exposure) {
+            CheckIsolation("AddExposure");
             exposureStack.Push(exposure);
             TSLogger.Info($"DITHER-DIAG: AddExposure filter={exposure.FilterName}; stack now depth={exposureStack.Count} " +
                 $"[{string.Join(",", exposureStack.Select(e => e.FilterName))}] (hash={GetHashCode()})");
         }
 
         public bool DitherRequired(IExposure nextExposure) {
+            CheckIsolation("DitherRequired");
             int? ditherOverride = GetExposureDitherOverride(nextExposure);
             int dither = ditherOverride.HasValue ? ditherOverride.Value : ditherEvery;
 
@@ -51,8 +60,29 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         public void Reset() {
+            CheckIsolation("Reset");
             TSLogger.Info($"DITHER-DIAG: Reset() clearing stack (was depth={exposureStack.Count}) (hash={GetHashCode()})");
             exposureStack.Clear();
+        }
+
+        /// <summary>
+        /// True if this manager was created during a plan preview (i.e. it lives in the thread-local
+        /// scratch cache).  Exposed so isolation regression tests can assert live-vs-preview routing.
+        /// </summary>
+        public bool CreatedInPreview => createdInPreview;
+
+        /// <summary>
+        /// Loud tripwire for the "preview mutates live dither state" bug class (this is its 3rd
+        /// occurrence). If a manager is mutated while the preview context does not match the context
+        /// it was created in, isolation has broken — log it at Warning so it surfaces on the first
+        /// offending sub instead of being discovered as a whole night of missing dithers.
+        /// </summary>
+        private void CheckIsolation(string op) {
+            if (createdInPreview != PreviewContext.IsActive) {
+                TSLogger.Warning($"DITHER-LEAK: {op} on a {(createdInPreview ? "PREVIEW" : "LIVE")} DitherManager " +
+                    $"while PreviewContext.IsActive={PreviewContext.IsActive} (hash={GetHashCode()}) — " +
+                    "live/preview dither isolation has broken; a preview is corrupting live dither state (or vice versa)");
+            }
         }
 
         private int? GetExposureDitherOverride(IExposure exposure) {

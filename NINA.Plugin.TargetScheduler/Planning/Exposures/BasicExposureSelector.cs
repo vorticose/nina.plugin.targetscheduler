@@ -15,9 +15,8 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         private ExposureRatioSelector ExposureRatioSelector = null;
         private bool lastSelectionByRatio = false;
 
-        public BasicExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(target) {
+        public BasicExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(project, target) {
             FilterCadence = new FilterCadenceFactory().Generate(project, target, databaseTarget);
-            DitherManager = GetDitherManager(project, target);
             if (project.MaintainExposureRatio) {
                 ExposureRatioSelector = new ExposureRatioSelector(project.ExposureCompletionHelper);
             }

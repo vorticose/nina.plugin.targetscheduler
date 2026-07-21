@@ -8,17 +8,37 @@ using System.Collections.Generic;
 namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
     public abstract class BaseExposureSelector {
+        protected IProject Project;
         protected ITarget Target;
         protected FilterCadence FilterCadence;
-        protected DitherManager DitherManager;
 
-        public BaseExposureSelector(ITarget target) {
+        /// <summary>
+        /// The DitherManager is resolved LAZILY on every access (never cached in a field) so that
+        /// the preview/live distinction — which is only established AFTER the selector is constructed
+        /// (MarkForPreview sets ITarget.IsPreview; PreviewPlanner enters the PreviewContext) — is
+        /// always honored at the point of use.
+        ///
+        /// This is the root-cause fix for the third occurrence of the preview-corrupts-live class of
+        /// bug. Previously each selector captured GetDitherManager(...) in its constructor, grabbing a
+        /// reference to the LIVE DitherManager before any preview context existed. The thread-local
+        /// scratch redirect in DitherManagerCache could then never intercept it, so a background plan
+        /// preview (TS API /preview, Plan Preview UI) drove ExposureTaken/Reset straight into live
+        /// dither state and suppressed dithering for the rest of the session. The smart-rotation cache
+        /// never had this bug precisely because it re-resolves from the cache on every operation — this
+        /// makes dither behave the same way. See PreviewContext.
+        /// </summary>
+        protected DitherManager DitherManager => GetDitherManager(Project, Target);
+
+        public BaseExposureSelector(IProject project, ITarget target) {
+            Project = project;
             Target = target;
         }
 
         /// <summary>
         /// Some exposure selectors need to remember the previous dither state - typically those
-        /// that don't rely on a persisted FilterCadence.
+        /// that don't rely on a persisted FilterCadence.  Always resolved through the cache (never
+        /// held in a field) so preview runs transparently hit the thread-local scratch cache and
+        /// live runs hit the shared live cache.
         /// </summary>
         /// <param name="project"></param>
         /// <param name="target"></param>
@@ -27,10 +47,10 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             string cacheKey = DitherManagerCache.GetCacheKey(target);
             DitherManager dm = DitherManagerCache.Get(cacheKey);
             if (dm != null) {
-                TSLogger.Info($"DITHER-DIAG: GetDitherManager cache HIT key={cacheKey} project.DitherEvery={project.DitherEvery} (hash={dm.GetHashCode()})");
+                TSLogger.Debug($"DITHER-DIAG: GetDitherManager cache HIT key={cacheKey} preview={PreviewContext.IsActive} project.DitherEvery={project.DitherEvery} (hash={dm.GetHashCode()})");
                 return dm;
             } else {
-                TSLogger.Info($"DITHER-DIAG: GetDitherManager cache MISS key={cacheKey} -> creating new with project.DitherEvery={project.DitherEvery}");
+                TSLogger.Info($"DITHER-DIAG: GetDitherManager cache MISS key={cacheKey} preview={PreviewContext.IsActive} -> creating new with project.DitherEvery={project.DitherEvery}");
                 dm = new DitherManager(project.DitherEvery);
                 DitherManagerCache.Put(dm, cacheKey);
                 return dm;

@@ -52,14 +52,31 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
     public class ExposureRotateStatus {
         private OrderedDictionary<int, ExposureCountState> exposureCountState;
 
+        // See DitherManager.createdInPreview — same live-vs-preview isolation tripwire, applied to
+        // smart filter-rotation state (the sibling of the dither bug in this same class of defect).
+        private readonly bool createdInPreview;
+
         public ExposureRotateStatus(ITarget target) {
             exposureCountState = new OrderedDictionary<int, ExposureCountState>(target.ExposurePlans.Count);
             target.ExposurePlans.ForEach(ep => {
                 exposureCountState.Add(ep.DatabaseId, new ExposureCountState());
             });
+            createdInPreview = PreviewContext.IsActive;
+        }
+
+        /// <summary>True if this rotation state was created during a plan preview (scratch cache).</summary>
+        public bool CreatedInPreview => createdInPreview;
+
+        private void CheckIsolation(string op) {
+            if (createdInPreview != PreviewContext.IsActive) {
+                TSLogger.Warning($"ROTATE-LEAK: {op} on a {(createdInPreview ? "PREVIEW" : "LIVE")} rotation state " +
+                    $"while PreviewContext.IsActive={PreviewContext.IsActive} — " +
+                    "live/preview filter-rotation isolation has broken; a preview is corrupting live rotation state (or vice versa)");
+            }
         }
 
         internal IExposure Select(List<IExposure> candidates, int rotateCount) {
+            CheckIsolation("Select");
             ResetForSelect(candidates, rotateCount);
 
             foreach (var item in exposureCountState) {
@@ -73,6 +90,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         internal void ExposureTaken(IExposure exposure, int rotateCount) {
+            CheckIsolation("ExposureTaken");
             var item = exposureCountState.FirstOrDefault(ec => ec.Key == exposure.DatabaseId);
             ExposureCountState state = item.Value;
             state.Count = state.Count == rotateCount ? rotateCount : state.Count + 1;

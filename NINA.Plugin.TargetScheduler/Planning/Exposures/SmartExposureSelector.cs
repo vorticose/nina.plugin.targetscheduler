@@ -14,8 +14,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         private SmartExposureRotateManager SmartExposureRotateManager = null;
         private ExposureRatioSelector ExposureRatioSelector = null;
 
-        public SmartExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(target) {
-            DitherManager = GetDitherManager(project, target);
+        public SmartExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(project, target) {
             if (project.FilterSwitchFrequency > 0) {
                 SmartExposureRotateManager = new SmartExposureRotateManager(target, project.FilterSwitchFrequency);
             }
