@@ -12,6 +12,22 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
     [TestFixture]
     public class BasicExposureSelectorTest {
 
+        // These tests exercise dither cadence through the shared static DitherManagerCache
+        // (keyed by target DatabaseId, here 0). Without clearing it between tests, cadence state
+        // leaks across tests and makes pass/fail depend on execution order. Clear per test so the
+        // dither assertions are deterministic. (SmartExposureSelectorTest does the same.)
+        [SetUp]
+        public void Setup() {
+            DitherManagerCache.Clear();
+            SmartExposureRotateCache.Clear();
+        }
+
+        [TearDown]
+        public void TearDown() {
+            DitherManagerCache.Clear();
+            SmartExposureRotateCache.Clear();
+        }
+
         [Test]
         public void testBasicExposureSelector() {
             Mock<IProject> pp = PlanMocks.GetMockPlanProject("P1", ProjectState.Active);
