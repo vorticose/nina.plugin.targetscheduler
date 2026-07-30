@@ -6,6 +6,7 @@ using NINA.Plugin.TargetScheduler.Database;
 using NINA.Plugin.TargetScheduler.Database.Schema;
 using NINA.Plugin.TargetScheduler.Planning;
 using NINA.Plugin.TargetScheduler.Planning.Entities;
+using NINA.Plugin.TargetScheduler.Planning.Explain;
 using NINA.Plugin.TargetScheduler.Planning.Interfaces;
 using NINA.Plugin.TargetScheduler.Shared.Utility;
 using NINA.Plugin.TargetScheduler.Util;
@@ -42,6 +43,8 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
             SetNowCommand = new RelayCommand(SetPreviewTimeNow);
             PlanPreviewCommand = new RelayCommand(RunPlanPreview);
             PlanPreviewResultsCommand = new RelayCommand(RunPlanPreviewResults);
+            PlanInsightCommand = new RelayCommand(RunPlanInsight);
+            ExportInsightCommand = new RelayCommand(RunExportInsight);
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {
@@ -173,6 +176,29 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
         public ICommand SetNowCommand { get; private set; }
         public ICommand PlanPreviewCommand { get; private set; }
         public ICommand PlanPreviewResultsCommand { get; private set; }
+        public ICommand PlanInsightCommand { get; private set; }
+        public ICommand ExportInsightCommand { get; private set; }
+
+        // **CUSTOM FORK** Planning insight: timeline + scoring transparency for the current preview.
+        private bool showTimeline;
+
+        public bool ShowTimeline {
+            get => showTimeline;
+            set {
+                showTimeline = value;
+                RaisePropertyChanged(nameof(ShowTimeline));
+            }
+        }
+
+        private PlanExplanation explanation;
+
+        public PlanExplanation Explanation {
+            get => explanation;
+            set {
+                explanation = value;
+                RaisePropertyChanged(nameof(Explanation));
+            }
+        }
 
         private void LoadSchedulerPlans(DateTime atDateTime, IProfileService profileService) {
             /* While the caching here works and detects changes to the preview parameters (like date/time), it's not picking
@@ -367,6 +393,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
 
                         InstructionList = list;
                         ShowPlanPreviewResults = false;
+                        ShowTimeline = false;
                         ShowPlanPreview = true;
                     } catch (Exception ex) {
                         TSLogger.Error($"failed to run plan preview: {ex.Message} {ex.StackTrace}");
@@ -434,6 +461,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                         sb.AppendLine("\nRUN COMPLETE - NO MORE TARGETS AVAILABLE");
                         PlanPreviewResultsLog = sb.ToString();
                         ShowPlanPreview = false;
+                        ShowTimeline = false;
                         ShowPlanPreviewResults = true;
                     } catch (Exception ex) {
                         TSLogger.Error($"failed to run plan preview results: {ex.Message} {ex.StackTrace}");
@@ -444,6 +472,82 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                 TableLoading = false;
                 return true;
             });
+        }
+
+        // **CUSTOM FORK** Planning insight: build the timeline + scoring explanation for the current preview.
+        private void RunPlanInsight() {
+            _ = ExecutePlanInsight();
+        }
+
+        private async Task<bool> ExecutePlanInsight() {
+            return await Task.Run(() => {
+                TableLoading = true;
+                ShowPlanPreview = false;
+                ShowPlanPreviewResults = false;
+                ShowTimeline = false;
+                Thread.Sleep(50);
+
+                if (PlanDate == DateTime.MinValue || SelectedProfileId == null) {
+                    TableLoading = false;
+                    return true;
+                }
+
+                DateTime atDateTime = PlanDate.Date.AddHours(PlanHours).AddMinutes(PlanMinutes).AddSeconds(PlanSeconds);
+                PlanExplanation result = BuildExplanation(atDateTime);
+                if (result == null) {
+                    TableLoading = false;
+                    return true;
+                }
+
+                _dispatcher.Invoke(DispatcherPriority.Normal, new Action(() => {
+                    Explanation = result;
+                    ShowPlanPreview = false;
+                    ShowPlanPreviewResults = false;
+                    ShowTimeline = true;
+                }));
+
+                TableLoading = false;
+                return true;
+            });
+        }
+
+        private PlanExplanation BuildExplanation(DateTime atDateTime) {
+            try {
+                TSLogger.Debug($"building plan insight for {Utils.FormatDateTimeFull(atDateTime)}, profileId={SelectedProfileId}");
+
+                SchedulerPlanLoader loader = new SchedulerPlanLoader(GetProfile(SelectedProfileId));
+                string profileName = ProfileChoices.First(p => p.Key == selectedProfileId).Value;
+
+                List<IProject> probe = loader.LoadActiveProjects(database.GetContext());
+                if (Common.IsEmpty(probe)) {
+                    MyMessageBox.Show($"No active projects/targets were returned by the planner for {Utils.FormatDateTimeFull(atDateTime)} and{Environment.NewLine}profile '{profileName}' - or no active targets were found with active exposure plans.", "Oops");
+                    return null;
+                }
+
+                ProfilePreference profilePreference = loader.GetProfilePreferences(database.GetContext());
+                Func<List<IProject>> loadProjects = () => MarkForPreview(loader.LoadActiveProjects(database.GetContext()));
+
+                return new PlanExplanationBuilder().Build(atDateTime, profileName, profileService, profilePreference, loadProjects);
+            } catch (Exception ex) {
+                TSLogger.Error($"failed to build plan insight: {ex.Message} {ex.StackTrace}");
+                MyMessageBox.Show("Exception building plan insight - see the TS log for details.", "Oops");
+                return null;
+            }
+        }
+
+        private void RunExportInsight() {
+            if (Explanation == null) {
+                MyMessageBox.Show("Run 'Insight' first to generate a plan to export.", "Oops");
+                return;
+            }
+
+            try {
+                string dir = Explanation.Export();
+                MyMessageBox.Show($"Exported plan explanation (full JSON, condensed digest, and an LLM prompt template) to:{Environment.NewLine}{Environment.NewLine}{dir}", "Exported");
+            } catch (Exception ex) {
+                TSLogger.Error($"failed to export plan insight: {ex.Message} {ex.StackTrace}");
+                MyMessageBox.Show("Exception exporting plan insight - see the TS log for details.", "Oops");
+            }
         }
 
         private AsyncObservableCollection<KeyValuePair<string, string>> GetProfileChoices() {
