@@ -34,6 +34,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Entities {
         public double MoonRelaxMinAltitude { get; set; }
         public bool MoonDownEnabled { get; set; }
         public double MoonAvoidanceScore { get; set; }
+        public MoonAvoidanceDetail MoonAvoidanceDetail { get; set; }
 
         public double MaximumHumidity { get; set; }
 

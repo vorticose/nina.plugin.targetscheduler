@@ -6,7 +6,7 @@ using System;
 namespace NINA.Plugin.TargetScheduler.Astrometry {
 
     public class AstrometryUtils {
-        private const double DAYS_IN_LUNAR_CYCLE = 29.53059;
+        public const double DAYS_IN_LUNAR_CYCLE = 29.53059;
 
         /// <summary>
         /// Return the horizontal coordinates for the coordinates at the specific location and time.
@@ -97,9 +97,20 @@ namespace NINA.Plugin.TargetScheduler.Astrometry {
         /// <param name="target"></param>
         /// <returns></returns>
         public static double GetMoonSeparationAngle(ObserverInfo location, DateTime atTime, Coordinates target) {
-            NOVAS.SkyPosition pos = AstroUtil.GetMoonPosition(atTime, AstroUtil.GetJulianDate(atTime), location);
-            var moonRaRadians = AstroUtil.ToRadians(AstroUtil.HoursToDegrees(pos.RA));
-            var moonDecRadians = AstroUtil.ToRadians(pos.Dec);
+            return GetMoonSeparationAngle(GetMoonPosition(location, atTime), target);
+        }
+
+        /// <summary>
+        /// Determine the angle in degrees between the moon and a target, reusing a moon position that was already
+        /// determined for the time in question.  Prefer the overload above unless you're evaluating many targets
+        /// against the same instant and want to avoid recomputing the moon position for each of them.
+        /// </summary>
+        /// <param name="moonPosition"></param>
+        /// <param name="target"></param>
+        /// <returns></returns>
+        public static double GetMoonSeparationAngle(NOVAS.SkyPosition moonPosition, Coordinates target) {
+            var moonRaRadians = AstroUtil.ToRadians(AstroUtil.HoursToDegrees(moonPosition.RA));
+            var moonDecRadians = AstroUtil.ToRadians(moonPosition.Dec);
 
             Coordinates targetJNow = target.Transform(Epoch.JNOW);
             var targetRaRadians = AstroUtil.ToRadians(targetJNow.RADegrees);
@@ -107,6 +118,34 @@ namespace NINA.Plugin.TargetScheduler.Astrometry {
 
             var theta = SOFA.Seps(moonRaRadians, moonDecRadians, targetRaRadians, targetDecRadians);
             return AstroUtil.ToDegree(theta);
+        }
+
+        /// <summary>
+        /// Get the moon's apparent position at location and time.
+        /// </summary>
+        /// <param name="location"></param>
+        /// <param name="atTime"></param>
+        /// <returns></returns>
+        public static NOVAS.SkyPosition GetMoonPosition(ObserverInfo location, DateTime atTime) {
+            return AstroUtil.GetMoonPosition(atTime, AstroUtil.GetJulianDate(atTime), location);
+        }
+
+        /// <summary>
+        /// Get the common name of the moon phase for the moon age in days.
+        /// </summary>
+        /// <param name="moonAge">age in days</param>
+        /// <returns></returns>
+        public static string GetMoonPhaseName(double moonAge) {
+            double eighth = DAYS_IN_LUNAR_CYCLE / 8;
+            if (moonAge < eighth * 0.5) return "New";
+            if (moonAge < eighth * 1.5) return "Waxing Crescent";
+            if (moonAge < eighth * 2.5) return "First Quarter";
+            if (moonAge < eighth * 3.5) return "Waxing Gibbous";
+            if (moonAge < eighth * 4.5) return "Full";
+            if (moonAge < eighth * 5.5) return "Waning Gibbous";
+            if (moonAge < eighth * 6.5) return "Last Quarter";
+            if (moonAge < eighth * 7.5) return "Waning Crescent";
+            return "New";
         }
 
         /// <summary>

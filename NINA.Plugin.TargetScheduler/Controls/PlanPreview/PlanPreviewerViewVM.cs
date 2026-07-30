@@ -1,4 +1,5 @@
 ﻿using LinqKit;
+using NINA.Astrometry;
 using NINA.Core.MyMessageBox;
 using NINA.Core.Utility;
 using NINA.Plugin.TargetScheduler.Controls.Util;
@@ -45,6 +46,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
             PlanPreviewResultsCommand = new RelayCommand(RunPlanPreviewResults);
             PlanInsightCommand = new RelayCommand(RunPlanInsight);
             ExportInsightCommand = new RelayCommand(RunExportInsight);
+            MoonAvoidanceCommand = new RelayCommand(RunMoonAvoidance);
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {
@@ -58,8 +60,11 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
             SelectedProfileId = profileService.ActiveProfile.Id.ToString();
             ProfileChoices = GetProfileChoices();
 
+            MoonAvoidanceRows = new AsyncObservableCollection<MoonAvoidanceAnalysisRow>();
+
             ShowPlanPreview = true;
             ShowPlanPreviewResults = false;
+            ShowMoonAvoidance = false;
             TableLoading = false;
         }
 
@@ -173,6 +178,16 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
             }
         }
 
+        private bool showMoonAvoidance;
+
+        public bool ShowMoonAvoidance {
+            get => showMoonAvoidance;
+            set {
+                showMoonAvoidance = value;
+                RaisePropertyChanged(nameof(ShowMoonAvoidance));
+            }
+        }
+
         public ICommand SetNowCommand { get; private set; }
         public ICommand PlanPreviewCommand { get; private set; }
         public ICommand PlanPreviewResultsCommand { get; private set; }
@@ -199,6 +214,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                 RaisePropertyChanged(nameof(Explanation));
             }
         }
+        public ICommand MoonAvoidanceCommand { get; private set; }
 
         private void LoadSchedulerPlans(DateTime atDateTime, IProfileService profileService) {
             /* While the caching here works and detects changes to the preview parameters (like date/time), it's not picking
@@ -283,6 +299,8 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                 TableLoading = true;
                 ShowPlanPreviewResults = false;
                 ShowPlanPreview = false;
+                ShowMoonAvoidance = false;
+                ShowTimeline = false;
                 Thread.Sleep(50);
 
                 if (PlanDate == DateTime.MinValue || SelectedProfileId == null) {
@@ -394,6 +412,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                         InstructionList = list;
                         ShowPlanPreviewResults = false;
                         ShowTimeline = false;
+                        ShowMoonAvoidance = false;
                         ShowPlanPreview = true;
                     } catch (Exception ex) {
                         TSLogger.Error($"failed to run plan preview: {ex.Message} {ex.StackTrace}");
@@ -436,6 +455,8 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                 TableLoading = true;
                 ShowPlanPreviewResults = false;
                 ShowPlanPreview = false;
+                ShowMoonAvoidance = false;
+                ShowTimeline = false;
                 Thread.Sleep(50);
 
                 if (PlanDate == DateTime.MinValue || SelectedProfileId == null) {
@@ -462,6 +483,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                         PlanPreviewResultsLog = sb.ToString();
                         ShowPlanPreview = false;
                         ShowTimeline = false;
+                        ShowMoonAvoidance = false;
                         ShowPlanPreviewResults = true;
                     } catch (Exception ex) {
                         TSLogger.Error($"failed to run plan preview results: {ex.Message} {ex.StackTrace}");
@@ -485,6 +507,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                 ShowPlanPreview = false;
                 ShowPlanPreviewResults = false;
                 ShowTimeline = false;
+                ShowMoonAvoidance = false;
                 Thread.Sleep(50);
 
                 if (PlanDate == DateTime.MinValue || SelectedProfileId == null) {
@@ -503,6 +526,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                     Explanation = result;
                     ShowPlanPreview = false;
                     ShowPlanPreviewResults = false;
+                    ShowMoonAvoidance = false;
                     ShowTimeline = true;
                 }));
 
@@ -548,6 +572,109 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                 TSLogger.Error($"failed to export plan insight: {ex.Message} {ex.StackTrace}");
                 MyMessageBox.Show("Exception exporting plan insight - see the TS log for details.", "Oops");
             }
+        }
+
+        private AsyncObservableCollection<MoonAvoidanceAnalysisRow> moonAvoidanceRows;
+
+        public AsyncObservableCollection<MoonAvoidanceAnalysisRow> MoonAvoidanceRows {
+            get => moonAvoidanceRows;
+            set {
+                moonAvoidanceRows = value;
+                RaisePropertyChanged(nameof(MoonAvoidanceRows));
+            }
+        }
+
+        private string moonAvoidanceSummary;
+
+        public string MoonAvoidanceSummary {
+            get => moonAvoidanceSummary;
+            set {
+                moonAvoidanceSummary = value;
+                RaisePropertyChanged(nameof(MoonAvoidanceSummary));
+            }
+        }
+
+        private void RunMoonAvoidance() {
+            _ = ExecuteMoonAvoidance();
+        }
+
+        /// <summary>
+        /// Sweep the night for moon avoidance across every active target and exposure plan.  Unlike the plan
+        /// preview, this doesn't run the planner - it evaluates avoidance directly, so targets that avoidance
+        /// rejects outright (and which therefore never show up in a preview) are still reported.
+        /// </summary>
+        private async Task<bool> ExecuteMoonAvoidance() {
+            return await Task.Run(() => {
+                // Slight delay allows the UI thread to update the spinner property before the dispatcher
+                // thread starts ... which seems to block the UI updates.
+                TableLoading = true;
+                ShowPlanPreview = false;
+                ShowPlanPreviewResults = false;
+                ShowMoonAvoidance = false;
+                ShowTimeline = false;
+                Thread.Sleep(50);
+
+                if (PlanDate == DateTime.MinValue || SelectedProfileId == null) {
+                    TableLoading = false;
+                    return true;
+                }
+
+                DateTime atDateTime = PlanDate.Date.AddHours(PlanHours).AddMinutes(PlanMinutes).AddSeconds(PlanSeconds);
+                MoonAvoidanceAnalysis analysis;
+
+                try {
+                    TSLogger.Debug($"running moon avoidance analysis for {Utils.FormatDateTimeFull(atDateTime)}, profileId={SelectedProfileId}");
+                    IProfile profile = GetProfile(SelectedProfileId);
+                    ObserverInfo observerInfo = new ObserverInfo {
+                        Latitude = profile.AstrometrySettings.Latitude,
+                        Longitude = profile.AstrometrySettings.Longitude,
+                        Elevation = profile.AstrometrySettings.Elevation,
+                    };
+
+                    // The analysis walks synthetic times through the twilight cache: isolate it from live state.
+                    PreviewContext.Enter();
+                    try {
+                        SchedulerPlanLoader loader = new SchedulerPlanLoader(profile);
+                        List<IProject> projects = MarkForPreview(loader.LoadActiveProjects(database.GetContext()));
+                        analysis = new MoonAvoidanceAnalyzer(observerInfo).Analyze(atDateTime, projects);
+                    } finally {
+                        PreviewContext.Exit();
+                    }
+                } catch (Exception ex) {
+                    TSLogger.Error($"failed to run moon avoidance analysis: {ex.Message} {ex.StackTrace}");
+                    MyMessageBox.Show("Exception running moon avoidance analysis - see the TS log for details.", "Oops");
+                    TableLoading = false;
+                    return true;
+                }
+
+                if (analysis == null) {
+                    MyMessageBox.Show($"There's no night at this location for {Utils.FormatDateTimeFull(atDateTime)}, so moon avoidance can't be analyzed.", "Oops");
+                    TableLoading = false;
+                    return true;
+                }
+
+                _dispatcher.Invoke(DispatcherPriority.Normal, new Action(() => {
+                    try {
+                        AsyncObservableCollection<MoonAvoidanceAnalysisRow> rows = new AsyncObservableCollection<MoonAvoidanceAnalysisRow>();
+                        analysis.Rows
+                            .OrderBy(r => r.TargetLabel)
+                            .ThenBy(r => r.FilterName)
+                            .ForEach(r => rows.Add(r));
+
+                        MoonAvoidanceRows = rows;
+                        MoonAvoidanceSummary = $"{analysis.NightSummary}{Environment.NewLine}{analysis.MoonSummary}{Environment.NewLine}{analysis.CoverageSummary}";
+                        ShowPlanPreview = false;
+                        ShowPlanPreviewResults = false;
+                        ShowTimeline = false;
+                        ShowMoonAvoidance = true;
+                    } catch (Exception ex) {
+                        TSLogger.Error($"failed to display moon avoidance analysis: {ex.Message} {ex.StackTrace}");
+                    }
+                }));
+
+                TableLoading = false;
+                return true;
+            });
         }
 
         private AsyncObservableCollection<KeyValuePair<string, string>> GetProfileChoices() {

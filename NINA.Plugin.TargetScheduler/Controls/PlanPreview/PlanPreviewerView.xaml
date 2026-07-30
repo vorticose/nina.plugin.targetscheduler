@@ -180,6 +180,14 @@
                             Height="25"
                             Margin="4,3,0,0"
                             HorizontalAlignment="Left"
+                            Command="{Binding MoonAvoidanceCommand}"
+                            Content="Moon Avoidance"
+                            ToolTip="Show moon distance and avoidance details for every active target over this night" />
+                        <Button
+                            Width="120"
+                            Height="25"
+                            Margin="4,3,0,0"
+                            HorizontalAlignment="Left"
                             Command="{Binding ExportInsightCommand}"
                             Content="Export for LLM"
                             ToolTip="Write the plan explanation (JSON + digest + prompt template) to disk" />
@@ -242,6 +250,114 @@
             BorderThickness="1"
             Visibility="{Binding ShowTimeline, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
             <pp:TimelineView Explanation="{Binding Explanation}" />
+        </Border>
+
+        <Border
+            BorderBrush="{StaticResource BorderBrush}"
+            BorderThickness="1"
+            Visibility="{Binding ShowMoonAvoidance, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+            <StackPanel>
+                <TextBlock
+                    Margin="10,10,10,4"
+                    FontWeight="Bold"
+                    Text="{Binding MoonAvoidanceSummary}"
+                    TextWrapping="Wrap" />
+                <TextBlock
+                    Margin="10,0,10,8"
+                    FontStyle="Italic"
+                    Text="Moon distance and margin are taken at the most favorable moment of the night for each exposure plan, over the times the target is above its horizon and within its twilight span. 'To Unblock' is the largest Moon Avoidance Separation the exposure template could use and still get some time tonight. Window times are accurate to 10 minutes."
+                    TextWrapping="Wrap" />
+
+                <DataGrid
+                    Height="300"
+                    AutoGenerateColumns="False"
+                    BorderThickness="0"
+                    CanUserAddRows="False"
+                    CanUserSortColumns="True"
+                    HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                    HorizontalScrollBarVisibility="Disabled"
+                    IsReadOnly="True"
+                    IsSynchronizedWithCurrentItem="False"
+                    ItemsSource="{Binding MoonAvoidanceRows}"
+                    RowHeight="25"
+                    ScrollViewer.CanContentScroll="False"
+                    VerticalScrollBarVisibility="Auto">
+
+                    <DataGrid.ColumnHeaderStyle>
+                        <Style TargetType="{x:Type DataGridColumnHeader}">
+                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                            <Setter Property="BorderThickness" Value="0" />
+                            <Setter Property="MinHeight" Value="25" />
+                            <Setter Property="Margin" Value="5,3,5,3" />
+                            <Setter Property="FontWeight" Value="Bold" />
+                            <Setter Property="FontSize" Value="12" />
+                        </Style>
+                    </DataGrid.ColumnHeaderStyle>
+
+                    <DataGrid.CellStyle>
+                        <Style TargetType="DataGridCell">
+                            <Setter Property="BorderThickness" Value="0" />
+                            <Setter Property="MinHeight" Value="22" />
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                            <Setter Property="Margin" Value="5,3,5,3" />
+                            <Setter Property="Background" Value="Transparent" />
+                        </Style>
+                    </DataGrid.CellStyle>
+
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Setter Property="MinHeight" Value="22" />
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsBlockedAllNight}" Value="True">
+                                    <Setter Property="Foreground" Value="IndianRed" />
+                                    <Setter Property="FontWeight" Value="Bold" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding NeverImagable}" Value="True">
+                                    <Setter Property="FontStyle" Value="Italic" />
+                                    <Setter Property="Opacity" Value="0.6" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+
+                    <DataGrid.Columns>
+                        <DataGridTextColumn
+                            Width="2*"
+                            Binding="{Binding TargetLabel}"
+                            Header="Project / Target" />
+                        <DataGridTextColumn
+                            Width="60"
+                            Binding="{Binding FilterName}"
+                            Header="Filter" />
+                        <DataGridTextColumn
+                            Width="110"
+                            Binding="{Binding AvoidanceSettings}"
+                            Header="Avoidance" />
+                        <DataGridTextColumn
+                            Width="60"
+                            Binding="{Binding MoonSeparationText}"
+                            Header="Moon Sep" />
+                        <DataGridTextColumn
+                            Width="60"
+                            Binding="{Binding RequiredSeparationText}"
+                            Header="Required" />
+                        <DataGridTextColumn
+                            Width="60"
+                            Binding="{Binding MarginText}"
+                            Header="Margin" />
+                        <DataGridTextColumn
+                            Width="2*"
+                            Binding="{Binding ClearWindowText}"
+                            Header="Available Tonight" />
+                        <DataGridTextColumn
+                            Width="130"
+                            Binding="{Binding SuggestionText}"
+                            Header="To Unblock" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </StackPanel>
         </Border>
     </StackPanel>
 </UserControl>
