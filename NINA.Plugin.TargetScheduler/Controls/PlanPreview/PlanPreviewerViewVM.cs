@@ -21,8 +21,10 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
@@ -584,6 +586,20 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
             }
         }
 
+        private ICollectionView moonAvoidanceView;
+
+        /// <summary>
+        /// The moon avoidance rows grouped project then target, so the per-plan detail sits under collapsible
+        /// dropdowns rather than as one long flat list.
+        /// </summary>
+        public ICollectionView MoonAvoidanceView {
+            get => moonAvoidanceView;
+            set {
+                moonAvoidanceView = value;
+                RaisePropertyChanged(nameof(MoonAvoidanceView));
+            }
+        }
+
         private string moonAvoidanceSummary;
 
         public string MoonAvoidanceSummary {
@@ -657,12 +673,21 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
                     try {
                         AsyncObservableCollection<MoonAvoidanceAnalysisRow> rows = new AsyncObservableCollection<MoonAvoidanceAnalysisRow>();
                         analysis.Rows
-                            .OrderBy(r => r.TargetLabel)
+                            .OrderBy(r => r.ProjectName)
+                            .ThenBy(r => r.TargetName)
                             .ThenBy(r => r.FilterName)
                             .ForEach(r => rows.Add(r));
 
                         MoonAvoidanceRows = rows;
-                        MoonAvoidanceSummary = $"{analysis.NightSummary}{Environment.NewLine}{analysis.MoonSummary}{Environment.NewLine}{analysis.CoverageSummary}";
+
+                        ICollectionView view = CollectionViewSource.GetDefaultView(rows);
+                        view.GroupDescriptions.Clear();
+                        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(MoonAvoidanceAnalysisRow.ProjectName)));
+                        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(MoonAvoidanceAnalysisRow.TargetName)));
+                        MoonAvoidanceView = view;
+
+                        MoonAvoidanceSummary = string.Join(Environment.NewLine,
+                            analysis.NightSummary, analysis.MoonSummary, analysis.MoonFreeSummary, analysis.CoverageSummary);
                         ShowPlanPreview = false;
                         ShowPlanPreviewResults = false;
                         ShowTimeline = false;

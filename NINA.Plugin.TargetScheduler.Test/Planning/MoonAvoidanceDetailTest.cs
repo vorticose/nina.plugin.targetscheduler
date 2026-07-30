@@ -6,6 +6,7 @@ using NINA.Plugin.TargetScheduler.Planning.Interfaces;
 using NINA.Plugin.TargetScheduler.Test.Astrometry;
 using NUnit.Framework;
 using System;
+using System.Collections.Generic;
 
 namespace NINA.Plugin.TargetScheduler.Test.Planning {
 
@@ -225,6 +226,94 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             pe.SetupProperty(m => m.MoonDownEnabled, moonDownEnabled);
             pe.SetupProperty(m => m.FilterName, "FLT");
             return pe.Object;
+        }
+    }
+
+    /// <summary>
+    /// Moon-free time is the number that decides what can be shot broadband, so it gets direct coverage of
+    /// each way the moon can straddle astronomical night.
+    /// </summary>
+    [TestFixture]
+    public class MoonFreeTimeTest {
+        private static readonly DateTime DUSK = new DateTime(2026, 7, 30, 22, 0, 0);
+        private static readonly DateTime DAWN = new DateTime(2026, 7, 31, 4, 0, 0);
+
+        private TimeInterval AstroNight => new TimeInterval(DUSK, DAWN);
+
+        [Test]
+        public void testMoonDownAllNight() {
+            MoonAvoidanceAnalyzer.CalculateMoonFreeTime(AstroNight, false, new List<MoonCrossing>())
+                .Should().Be(TimeSpan.FromHours(6));
+        }
+
+        [Test]
+        public void testMoonUpAllNight() {
+            MoonAvoidanceAnalyzer.CalculateMoonFreeTime(AstroNight, true, new List<MoonCrossing>())
+                .Should().Be(TimeSpan.Zero);
+        }
+
+        [Test]
+        public void testMoonSetsDuringNight() {
+            // Up at dusk, sets at 01:00 -> 3 hours moon-free before dawn
+            List<MoonCrossing> crossings = new List<MoonCrossing> {
+                new MoonCrossing(new DateTime(2026, 7, 31, 1, 0, 0), false)
+            };
+            MoonAvoidanceAnalyzer.CalculateMoonFreeTime(AstroNight, true, crossings)
+                .Should().Be(TimeSpan.FromHours(3));
+        }
+
+        [Test]
+        public void testMoonRisesDuringNight() {
+            // Down at dusk, rises at 00:30 -> 2.5 hours moon-free at the start
+            List<MoonCrossing> crossings = new List<MoonCrossing> {
+                new MoonCrossing(new DateTime(2026, 7, 31, 0, 30, 0), true)
+            };
+            MoonAvoidanceAnalyzer.CalculateMoonFreeTime(AstroNight, false, crossings)
+                .Should().Be(TimeSpan.FromHours(2.5));
+        }
+
+        [Test]
+        public void testMoonSetsThenRisesWithinNight() {
+            // Up at dusk, sets 23:00, rises 02:00 -> 3 hours moon-free in the middle
+            List<MoonCrossing> crossings = new List<MoonCrossing> {
+                new MoonCrossing(new DateTime(2026, 7, 30, 23, 0, 0), false),
+                new MoonCrossing(new DateTime(2026, 7, 31, 2, 0, 0), true)
+            };
+            MoonAvoidanceAnalyzer.CalculateMoonFreeTime(AstroNight, true, crossings)
+                .Should().Be(TimeSpan.FromHours(3));
+        }
+
+        [Test]
+        public void testCrossingsOutsideSpanIgnored() {
+            // A set before dusk and a rise after dawn must not affect the total
+            List<MoonCrossing> crossings = new List<MoonCrossing> {
+                new MoonCrossing(new DateTime(2026, 7, 30, 20, 0, 0), false),
+                new MoonCrossing(new DateTime(2026, 7, 31, 6, 0, 0), true)
+            };
+            MoonAvoidanceAnalyzer.CalculateMoonFreeTime(AstroNight, false, crossings)
+                .Should().Be(TimeSpan.FromHours(6));
+        }
+
+        [Test]
+        public void testUnorderedCrossingsAreSorted() {
+            List<MoonCrossing> crossings = new List<MoonCrossing> {
+                new MoonCrossing(new DateTime(2026, 7, 31, 2, 0, 0), true),
+                new MoonCrossing(new DateTime(2026, 7, 30, 23, 0, 0), false)
+            };
+            MoonAvoidanceAnalyzer.CalculateMoonFreeTime(AstroNight, true, crossings)
+                .Should().Be(TimeSpan.FromHours(3));
+        }
+
+        [Test]
+        public void testNoAstroNightIsZero() {
+            MoonAvoidanceAnalyzer.CalculateMoonFreeTime(null, false, new List<MoonCrossing>())
+                .Should().Be(TimeSpan.Zero);
+        }
+
+        [Test]
+        public void testNullCrossingsTreatedAsNone() {
+            MoonAvoidanceAnalyzer.CalculateMoonFreeTime(AstroNight, false, null)
+                .Should().Be(TimeSpan.FromHours(6));
         }
     }
 }

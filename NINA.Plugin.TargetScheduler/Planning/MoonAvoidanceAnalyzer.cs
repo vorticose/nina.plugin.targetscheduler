@@ -46,7 +46,8 @@ namespace NINA.Plugin.TargetScheduler.Planning {
             }
 
             List<MoonSample> samples = GetMoonSamples(night);
-            MoonAvoidanceAnalysis analysis = new MoonAvoidanceAnalysis(night, samples);
+            MoonAvoidanceAnalysis analysis = new MoonAvoidanceAnalysis(night, samples,
+                GetMoonNightCircumstances(twilight, night));
 
             if (Common.IsEmpty(projects)) { return analysis; }
 
@@ -160,6 +161,95 @@ namespace NINA.Plugin.TargetScheduler.Planning {
             return start < end ? new TimeInterval(start, end) : null;
         }
 
+        /// <summary>
+        /// Determine the moon rise/set bounding this night and how much of astronomical night the moon is
+        /// absent for.  Rise/set come from NINA's own moon rise/set determination (upper limb, refracted) so
+        /// the times match what NINA reports elsewhere, and the moon-free total is derived from those same
+        /// events rather than a second definition - otherwise the two disagree by a few minutes and look wrong.
+        /// </summary>
+        private MoonNightCircumstances GetMoonNightCircumstances(TwilightCircumstances twilight, TimeInterval night) {
+            TimeInterval astroNight = twilight.GetTwilightSpan(TwilightLevel.Nighttime);
+            List<MoonCrossing> crossings = GetMoonCrossings(night.StartTime);
+
+            // The rise/set worth showing are the ones bounding this night: the last set/rise at or before the
+            // night ends, and the first at or after it starts.
+            DateTime? moonRise = crossings
+                .Where(c => c.IsRise && c.AtTime >= night.StartTime && c.AtTime <= night.EndTime)
+                .Select(c => (DateTime?)c.AtTime).FirstOrDefault();
+            DateTime? moonSet = crossings
+                .Where(c => !c.IsRise && c.AtTime >= night.StartTime && c.AtTime <= night.EndTime)
+                .Select(c => (DateTime?)c.AtTime).FirstOrDefault();
+
+            if (astroNight == null) {
+                return new MoonNightCircumstances(null, moonRise, moonSet, false, TimeSpan.Zero);
+            }
+
+            bool moonUpAtStart = AstroUtil.GetMoonAltitude(astroNight.StartTime, observerInfo) > 0;
+            TimeSpan moonFree = CalculateMoonFreeTime(astroNight, moonUpAtStart, crossings);
+            return new MoonNightCircumstances(astroNight, moonRise, moonSet, moonUpAtStart, moonFree);
+        }
+
+        /// <summary>
+        /// Moon rise/set events around the given date.  Spans three days because a night straddles midnight,
+        /// so the moon can rise on one calendar day and set on the next.
+        /// </summary>
+        private List<MoonCrossing> GetMoonCrossings(DateTime aroundDate) {
+            List<MoonCrossing> crossings = new List<MoonCrossing>();
+
+            for (int dayOffset = -1; dayOffset <= 1; dayOffset++) {
+                DateTime date = aroundDate.Date.AddDays(dayOffset);
+                var riseAndSet = AstroUtil.GetMoonRiseAndSet(date, observerInfo.Latitude, observerInfo.Longitude, observerInfo.Elevation);
+                if (riseAndSet == null) { continue; }
+
+                if (riseAndSet.Rise != null) { crossings.Add(new MoonCrossing((DateTime)riseAndSet.Rise, true)); }
+                if (riseAndSet.Set != null) { crossings.Add(new MoonCrossing((DateTime)riseAndSet.Set, false)); }
+            }
+
+            // Adjacent days can report the same event; drop near-duplicates.
+            List<MoonCrossing> deduped = new List<MoonCrossing>();
+            foreach (MoonCrossing crossing in crossings.OrderBy(c => c.AtTime)) {
+                MoonCrossing previous = deduped.Count > 0 ? deduped[deduped.Count - 1] : null;
+                if (previous != null && previous.IsRise == crossing.IsRise
+                    && (crossing.AtTime - previous.AtTime) < TimeSpan.FromMinutes(1)) {
+                    continue;
+                }
+
+                deduped.Add(crossing);
+            }
+
+            return deduped;
+        }
+
+        /// <summary>
+        /// Total time within the span that the moon is below the horizon.  Pure function of the span, whether
+        /// the moon is up when the span opens, and the rise/set events - so it can be tested without astrometry.
+        /// </summary>
+        /// <param name="span">the interval to measure, normally astronomical night</param>
+        /// <param name="moonUpAtStart">whether the moon is above the horizon at span.StartTime</param>
+        /// <param name="crossings">moon rise/set events; those outside the span are ignored</param>
+        /// <returns>time the moon is down</returns>
+        public static TimeSpan CalculateMoonFreeTime(TimeInterval span, bool moonUpAtStart, List<MoonCrossing> crossings) {
+            if (span == null) { return TimeSpan.Zero; }
+
+            List<MoonCrossing> inSpan = (crossings ?? new List<MoonCrossing>())
+                .Where(c => c.AtTime > span.StartTime && c.AtTime < span.EndTime)
+                .OrderBy(c => c.AtTime)
+                .ToList();
+
+            TimeSpan moonFree = TimeSpan.Zero;
+            bool moonUp = moonUpAtStart;
+            DateTime cursor = span.StartTime;
+
+            foreach (MoonCrossing crossing in inSpan) {
+                if (!moonUp) { moonFree += crossing.AtTime - cursor; }
+                moonUp = crossing.IsRise;
+                cursor = crossing.AtTime;
+            }
+
+            if (!moonUp) { moonFree += span.EndTime - cursor; }
+            return moonFree;
+        }
+
         private List<MoonSample> GetMoonSamples(TimeInterval night) {
             List<MoonSample> samples = new List<MoonSample>();
             DateTime sampleTime = night.StartTime;
@@ -204,6 +294,50 @@ namespace NINA.Plugin.TargetScheduler.Planning {
     }
 
     /// <summary>
+    /// A moon rise or set event.
+    /// </summary>
+    public class MoonCrossing {
+        public DateTime AtTime { get; private set; }
+
+        /// True for a rise, false for a set.
+        public bool IsRise { get; private set; }
+
+        public MoonCrossing(DateTime atTime, bool isRise) {
+            AtTime = atTime;
+            IsRise = isRise;
+        }
+
+        public override string ToString() => $"{(IsRise ? "rise" : "set")} at {AtTime:yyyy-MM-dd HH:mm}";
+    }
+
+    /// <summary>
+    /// The moon's rise/set and moon-free time for one night.
+    /// </summary>
+    public class MoonNightCircumstances {
+
+        /// Astronomical night (astro dusk to astro dawn, sun at -18°).  Null at latitudes/dates with none.
+        public TimeInterval AstroNight { get; private set; }
+
+        public DateTime? MoonRise { get; private set; }
+        public DateTime? MoonSet { get; private set; }
+        public bool MoonUpAtAstroNightStart { get; private set; }
+
+        /// Time within astronomical night that the moon is below the horizon.
+        public TimeSpan MoonFreeTime { get; private set; }
+
+        public bool HasAstroNight => AstroNight != null;
+
+        public MoonNightCircumstances(TimeInterval astroNight, DateTime? moonRise, DateTime? moonSet,
+            bool moonUpAtAstroNightStart, TimeSpan moonFreeTime) {
+            AstroNight = astroNight;
+            MoonRise = moonRise;
+            MoonSet = moonSet;
+            MoonUpAtAstroNightStart = moonUpAtAstroNightStart;
+            MoonFreeTime = moonFreeTime;
+        }
+    }
+
+    /// <summary>
     /// The moon's circumstances at one instant, independent of any target.
     /// </summary>
     public class MoonSample {
@@ -230,10 +364,16 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         public string MoonPhaseName { get; private set; }
         public double MoonMaximumAltitude { get; private set; }
 
-        /// Times the moon crosses the horizon during the night, if it does.  Accurate to the sample interval.
-        public DateTime? MoonRise { get; private set; }
+        /// Moon rise/set bounding this night, from NINA's own determination (upper limb, refracted).
+        public DateTime? MoonRise => circumstances.MoonRise;
 
-        public DateTime? MoonSet { get; private set; }
+        public DateTime? MoonSet => circumstances.MoonSet;
+
+        /// Astronomical night (astro dusk to astro dawn).  Null where there is none.
+        public TimeInterval AstroNight => circumstances.AstroNight;
+
+        /// Time within astronomical night that the moon is below the horizon.
+        public TimeSpan MoonFreeTime => circumstances.MoonFreeTime;
 
         /// True if the moon is above the horizon for the entire night.
         public bool MoonUpAllNight { get; private set; }
@@ -241,9 +381,12 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         /// True if the moon never rises during the night.
         public bool MoonDownAllNight { get; private set; }
 
-        public MoonAvoidanceAnalysis(TimeInterval night, List<MoonSample> samples) {
+        private readonly MoonNightCircumstances circumstances;
+
+        public MoonAvoidanceAnalysis(TimeInterval night, List<MoonSample> samples, MoonNightCircumstances circumstances) {
             Night = night;
             Samples = samples;
+            this.circumstances = circumstances;
             Rows = new List<MoonAvoidanceAnalysisRow>();
 
             DateTime midpoint = night.StartTime.AddSeconds((night.EndTime - night.StartTime).TotalSeconds / 2);
@@ -251,27 +394,19 @@ namespace NINA.Plugin.TargetScheduler.Planning {
             MoonIllumination = AstrometryUtils.GetMoonIllumination(midpoint);
             MoonPhaseName = AstrometryUtils.GetMoonPhaseName(MoonAge);
 
-            DetermineMoonRiseSet();
+            DetermineMoonAltitudeExtent();
         }
 
-        private void DetermineMoonRiseSet() {
+        private void DetermineMoonAltitudeExtent() {
             MoonMaximumAltitude = double.MinValue;
             bool everUp = false;
             bool everDown = false;
 
-            for (int i = 0; i < Samples.Count; i++) {
-                double altitude = Samples[i].MoonAltitude;
-                if (altitude > MoonMaximumAltitude) { MoonMaximumAltitude = altitude; }
-
-                bool up = altitude > 0;
+            foreach (MoonSample sample in Samples) {
+                if (sample.MoonAltitude > MoonMaximumAltitude) { MoonMaximumAltitude = sample.MoonAltitude; }
+                bool up = sample.MoonAltitude > 0;
                 everUp |= up;
                 everDown |= !up;
-
-                if (i == 0) { continue; }
-
-                bool wasUp = Samples[i - 1].MoonAltitude > 0;
-                if (!wasUp && up && MoonRise == null) { MoonRise = Samples[i].AtTime; }
-                if (wasUp && !up && MoonSet == null) { MoonSet = Samples[i].AtTime; }
             }
 
             MoonUpAllNight = everUp && !everDown;
@@ -290,18 +425,47 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                 StringBuilder sb = new StringBuilder();
                 sb.Append($"{MoonPhaseName} moon, {MoonIllumination * 100:F0}% illuminated, age {MoonAge:F1} days.");
 
+                if (MoonSet != null) { sb.Append($"  Sets {((DateTime)MoonSet):HH:mm}."); }
+                if (MoonRise != null) { sb.Append($"  Rises {((DateTime)MoonRise):HH:mm}."); }
+
                 if (MoonUpAllNight) {
                     sb.Append($"  Up all night, peaking at {MoonMaximumAltitude:F0}°.");
                 } else if (MoonDownAllNight) {
                     sb.Append("  Below the horizon all night.");
                 } else {
-                    if (MoonSet != null) { sb.Append($"  Sets {((DateTime)MoonSet):HH:mm}."); }
-                    if (MoonRise != null) { sb.Append($"  Rises {((DateTime)MoonRise):HH:mm}."); }
                     sb.Append($"  Peaks at {MoonMaximumAltitude:F0}°.");
                 }
 
                 return sb.ToString();
             }
+        }
+
+        /// <summary>
+        /// Moon-free time: how much of astronomical night (astro dusk to astro dawn) the moon is below the
+        /// horizon for.  This is the number that actually decides what you can shoot broadband.
+        /// </summary>
+        public string MoonFreeSummary {
+            get {
+                if (AstroNight == null) {
+                    return "Moon-free: no astronomical night at this location on this date.";
+                }
+
+                TimeSpan astroNightLength = TimeSpan.FromSeconds(AstroNight.Duration);
+                string window = $"{AstroNight.StartTime:HH:mm}-{AstroNight.EndTime:HH:mm}";
+
+                if (MoonFreeTime <= TimeSpan.Zero) {
+                    return $"Moon-free: none of the {FormatHoursMinutes(astroNightLength)} of astronomical night ({window}) - moon is up throughout.";
+                }
+
+                string moonFree = FormatHoursMinutes(MoonFreeTime);
+                return MoonFreeTime >= astroNightLength - TimeSpan.FromMinutes(1)
+                    ? $"Moon-free: all {moonFree} of astronomical night ({window})."
+                    : $"Moon-free: {moonFree} of {FormatHoursMinutes(astroNightLength)} astronomical night ({window}).";
+            }
+        }
+
+        private static string FormatHoursMinutes(TimeSpan span) {
+            return $"{(int)span.TotalHours}h{span.Minutes:00}m";
         }
 
         public string NightSummary =>
@@ -360,6 +524,9 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         public bool NeverImagable => ImagableSampleCount == 0;
 
         public bool IsBlockedAllNight => !NeverImagable && ClearWindows.Count == 0;
+
+        /// True when this exposure plan actually gets time tonight.
+        public bool HasTimeTonight => !NeverImagable && ClearWindows.Count > 0;
 
         public TimeSpan ClearDuration =>
             TimeSpan.FromSeconds(ClearWindows.Sum(w => w.Duration));
