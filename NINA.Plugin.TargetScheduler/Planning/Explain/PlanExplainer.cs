@@ -37,8 +37,6 @@ namespace NINA.Plugin.TargetScheduler.Planning.Explain {
 
         public ExplainerResult Explain(DateTime atTime, IProfileService profileService, ProfilePreference profilePreferences, List<IProject> projects) {
             TSLogger.Info("-- BEGIN PLAN EXPLAIN ----------------------------------------------------------");
-            DitherManagerCache.Clear();
-            SmartExposureRotateCache.ClearPreview(projects); // **CUSTOM FORK** isolate preview rotation from live
 
             ExplainerResult result = new ExplainerResult();
             IWeatherDataMediator weatherData = new DisconnectedWeatherDataMediator();
@@ -46,7 +44,15 @@ namespace NINA.Plugin.TargetScheduler.Planning.Explain {
             previousTarget = null;
             int index = 0;
 
+            // Explain drives the same exposure selectors as live planning (ExposureTaken/TargetReset) and the
+            // same PrepForNextRun bookkeeping, so it must run inside the preview isolation context exactly like
+            // PreviewPlanner does - otherwise it corrupts live dither cadence, filter rotation, filter-cadence
+            // DB rows and twilight boundaries. See PreviewContext.
+            PreviewContext.Enter();
+
             try {
+                DitherManagerCache.Clear();
+
                 SchedulerPlan plan;
                 while ((plan = new Planner(currentTime, profileService.ActiveProfile, profilePreferences, weatherData, false, true, projects).GetPlan(previousTarget)) != null) {
                     result.Plans.Add(plan);
@@ -66,6 +72,7 @@ namespace NINA.Plugin.TargetScheduler.Planning.Explain {
                 TSLogger.Error($"exception during plan explain: {ex.Message}\n{ex.StackTrace}");
                 return result;
             } finally {
+                PreviewContext.Exit();
                 TSLogger.Info("-- END PLAN EXPLAIN ------------------------------------------------------------");
             }
         }
