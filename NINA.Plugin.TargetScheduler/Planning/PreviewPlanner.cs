@@ -34,6 +34,7 @@ namespace NINA.Plugin.TargetScheduler.Planning {
             TSLogger.Info("-- BEGIN PLAN PREVIEW ----------------------------------------------------------");
 
             DitherManagerCache.Clear();
+            SmartExposureRotateCache.ClearPreview(projects); // **CUSTOM FORK** isolate preview rotation from live
             List<SchedulerPlan> plans = new List<SchedulerPlan>();
             IWeatherDataMediator weatherData = new DisconnectedWeatherDataMediator();
             DateTime currentTime = atTime;

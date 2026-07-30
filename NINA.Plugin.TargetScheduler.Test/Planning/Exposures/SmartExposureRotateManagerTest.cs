@@ -85,6 +85,59 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             });
         }
 
+        [Test]
+        public void testPreviewDoesNotCorruptLiveRotation() {
+            // **CUSTOM FORK** Regression for the S,S,S filter jam observed on the rig 2026-06-28: running the
+            // preview/explain emulation (IsPreview targets) must NOT mutate the live rotation state. Live and
+            // preview share the same DatabaseId but must use separate rotation cache entries.
+            Mock<ITarget> live = GetSHTarget(isPreview: false);
+            Mock<ITarget> preview = GetSHTarget(isPreview: true);
+
+            SmartExposureRotateManager liveMgr = new SmartExposureRotateManager(live.Object, 1);
+            SmartExposureRotateManager previewMgr = new SmartExposureRotateManager(preview.Object, 1);
+
+            // Live takes its first frame: S (first plan in rotation order).
+            IExposure first = liveMgr.Select(live.Object.ExposurePlans);
+            first.FilterName.Should().Be("S");
+            liveMgr.ExposureTaken(first);
+
+            // Preview emulates a full night, hammering ExposureTaken many times against the same DatabaseId.
+            for (int i = 0; i < 25; i++) {
+                IExposure pe = previewMgr.Select(preview.Object.ExposurePlans);
+                previewMgr.ExposureTaken(pe);
+            }
+
+            // Live must still alternate: the next live frame is H, not another S.
+            IExposure second = liveMgr.Select(live.Object.ExposurePlans);
+            second.FilterName.Should().Be("H");
+            liveMgr.ExposureTaken(second);
+
+            liveMgr.Select(live.Object.ExposurePlans).FilterName.Should().Be("S");
+        }
+
+        private Mock<ITarget> GetSHTarget(bool isPreview) {
+            Mock<IProject> pp = PlanMocks.GetMockPlanProject("P1", ProjectState.Active);
+            ExposureCompletionHelper helper = new ExposureCompletionHelper(true, 0, 125);
+
+            pp.SetupAllProperties();
+            pp.SetupProperty(p => p.SmartExposureOrder, true);
+            pp.SetupProperty(p => p.FilterSwitchFrequency, 1);
+            pp.SetupProperty(p => p.ExposureCompletionHelper, helper);
+
+            Mock<ITarget> pt = PlanMocks.GetMockPlanTarget("T1", TestData.M31);
+            pt.SetupProperty(t => t.Project, pp.Object);
+            pt.SetupProperty(t => t.DatabaseId, 1);
+            pt.SetupProperty(t => t.IsPreview, isPreview);
+
+            Mock<IExposure> Spf = PlanMocks.GetMockPlanExposure("S", 10, 0);
+            Mock<IExposure> Hpf = PlanMocks.GetMockPlanExposure("H", 10, 0);
+            Spf.SetupProperty(e => e.DatabaseId, 1);
+            Hpf.SetupProperty(e => e.DatabaseId, 2);
+            PlanMocks.AddMockPlanFilter(pt, Spf);
+            PlanMocks.AddMockPlanFilter(pt, Hpf);
+            return pt;
+        }
+
         private void SetEPs(Mock<ITarget> pt) {
             Mock<IExposure> Lpf = PlanMocks.GetMockPlanExposure("L", 10, 0);
             Mock<IExposure> Rpf = PlanMocks.GetMockPlanExposure("R", 10, 0);

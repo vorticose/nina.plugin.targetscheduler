@@ -126,7 +126,26 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         public static string GetCacheKey(ITarget target) {
-            return target.DatabaseId.ToString();
+            // **CUSTOM FORK** Preview/explain emulation (PreviewPlanner, PlanExplainer) runs the planner
+            // forward and calls ExposureTaken, which would otherwise mutate the SAME rotation state the live
+            // planner reads (both keyed by DatabaseId) and jam live filter rotation. Namespacing preview
+            // targets into a separate key isolates emulation from live execution.
+            return (target.IsPreview ? "preview:" : "") + target.DatabaseId.ToString();
+        }
+
+        /// <summary>
+        /// **CUSTOM FORK** Drop the preview-namespaced rotation state for the given projects' targets so each
+        /// preview/explain emulation run starts deterministically without inheriting a prior run's state.
+        /// Never touches live (non-preview) keys.
+        /// </summary>
+        public static void ClearPreview(List<IProject> projects) {
+            if (projects == null) return;
+            foreach (IProject project in projects) {
+                if (project?.Targets == null) continue;
+                foreach (ITarget target in project.Targets) {
+                    Remove("preview:" + target.DatabaseId.ToString());
+                }
+            }
         }
 
         public static ExposureRotateStatus Get(ITarget target) {
