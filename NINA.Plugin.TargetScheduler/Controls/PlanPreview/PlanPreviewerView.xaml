@@ -5,6 +5,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
+    xmlns:pp="clr-namespace:NINA.Plugin.TargetScheduler.Controls.PlanPreview"
     xmlns:rules="clr-namespace:NINA.Plugin.TargetScheduler.Controls.ValidationRules"
     d:DesignHeight="450"
     d:DesignWidth="800"
@@ -146,7 +147,7 @@
                         ItemsSource="{Binding ProfileChoices}"
                         SelectedValue="{Binding SelectedProfileId}"
                         SelectedValuePath="Key" />
-                    <StackPanel
+                    <WrapPanel
                         Grid.Row="2"
                         Grid.Column="1"
                         Orientation="Horizontal">
@@ -166,7 +167,23 @@
                             Command="{Binding PlanPreviewResultsCommand}"
                             Content="View Details"
                             ToolTip="View planner details" />
-                    </StackPanel>
+                        <Button
+                            Width="70"
+                            Height="25"
+                            Margin="4,3,0,0"
+                            HorizontalAlignment="Left"
+                            Command="{Binding PlanInsightCommand}"
+                            Content="Insight"
+                            ToolTip="Build the scoring/eligibility timeline for this night" />
+                        <Button
+                            Width="120"
+                            Height="25"
+                            Margin="4,3,0,0"
+                            HorizontalAlignment="Left"
+                            Command="{Binding ExportInsightCommand}"
+                            Content="Export for LLM"
+                            ToolTip="Write the plan explanation (JSON + digest + prompt template) to disk" />
+                    </WrapPanel>
                 </Grid>
             </StackPanel>
         </Border>
@@ -219,6 +236,12 @@
             <ScrollViewer Height="300" VerticalScrollBarVisibility="Auto">
                 <TextBlock FontFamily="Courier New" Text="{Binding PlanPreviewResultsLog}" />
             </ScrollViewer>
+        </Border>
+        <Border
+            BorderBrush="{StaticResource BorderBrush}"
+            BorderThickness="1"
+            Visibility="{Binding ShowTimeline, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+            <pp:TimelineView Explanation="{Binding Explanation}" />
         </Border>
     </StackPanel>
 </UserControl>
