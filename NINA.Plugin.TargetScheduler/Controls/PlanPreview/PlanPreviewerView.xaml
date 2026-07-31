@@ -12,7 +12,53 @@
     mc:Ignorable="d">
 
     <UserControl.Resources>
-        <ResourceDictionary Source="../Resources/Resources.xaml" />
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="../Resources/Resources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!--  Moon avoidance table: fixed column widths, so nothing gets squeezed to an unreadable sliver  -->
+            <Style x:Key="MoonHeaderCell" TargetType="TextBlock">
+                <Setter Property="FontWeight" Value="Bold" />
+                <Setter Property="Margin" Value="0,0,8,3" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="MoonRowCell" TargetType="TextBlock">
+                <Setter Property="Margin" Value="0,0,8,0" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="ToolTip" Value="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding HasTimeTonight}" Value="True">
+                        <Setter Property="Foreground" Value="MediumSeaGreen" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsBlockedAllNight}" Value="True">
+                        <Setter Property="Foreground" Value="IndianRed" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding NeverImagable}" Value="True">
+                        <Setter Property="FontStyle" Value="Italic" />
+                        <Setter Property="Opacity" Value="0.6" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="MoonGroupSummaryStyle" TargetType="TextBlock">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsAllClear}" Value="True">
+                        <Setter Property="Foreground" Value="MediumSeaGreen" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsAllBlocked}" Value="True">
+                        <Setter Property="Foreground" Value="IndianRed" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsNotImagable}" Value="True">
+                        <Setter Property="FontStyle" Value="Italic" />
+                        <Setter Property="Opacity" Value="0.6" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </ResourceDictionary>
     </UserControl.Resources>
 
     <StackPanel>
@@ -268,181 +314,60 @@
                     Text="Moon distance and margin are taken at the most favorable moment of the night for each exposure plan, over the times the target is above its horizon and within its twilight span. 'To Unblock' is the largest Moon Avoidance Separation the exposure template could use and still get some time tonight. Window times are accurate to 10 minutes."
                     TextWrapping="Wrap" />
 
-                <DataGrid
+                <ScrollViewer
                     Height="300"
-                    AutoGenerateColumns="False"
-                    BorderThickness="0"
-                    CanUserAddRows="False"
-                    CanUserSortColumns="False"
-                    HorizontalGridLinesBrush="{StaticResource BorderBrush}"
-                    HorizontalScrollBarVisibility="Disabled"
-                    IsReadOnly="True"
-                    IsSynchronizedWithCurrentItem="False"
-                    ItemsSource="{Binding MoonAvoidanceView}"
-                    RowHeight="25"
-                    ScrollViewer.CanContentScroll="False"
+                    HorizontalScrollBarVisibility="Auto"
                     VerticalScrollBarVisibility="Auto">
+                    <ItemsControl Margin="8,0,8,8" ItemsSource="{Binding MoonAvoidanceGroups}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Expander Margin="0,2,0,2" IsExpanded="False">
+                                    <Expander.Header>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock
+                                                FontSize="13"
+                                                FontWeight="Bold"
+                                                Text="{Binding Label}" />
+                                            <TextBlock
+                                                Margin="12,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Style="{StaticResource MoonGroupSummaryStyle}"
+                                                Text="{Binding SummaryText}" />
+                                        </StackPanel>
+                                    </Expander.Header>
 
-                    <DataGrid.GroupStyle>
-                        <!--  Level 0: project  -->
-                        <GroupStyle>
-                            <GroupStyle.ContainerStyle>
-                                <Style TargetType="{x:Type GroupItem}">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="{x:Type GroupItem}">
-                                                <Expander Margin="0,2,0,2" IsExpanded="True">
-                                                    <Expander.Header>
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <TextBlock
-                                                                FontSize="13"
-                                                                FontWeight="Bold"
-                                                                Text="{Binding Name}" />
-                                                            <TextBlock
-                                                                Margin="10,0,0,0"
-                                                                VerticalAlignment="Center"
-                                                                Text="{Binding Converter={StaticResource MoonGroupSummaryConverter}}">
-                                                                <TextBlock.Style>
-                                                                    <Style TargetType="TextBlock">
-                                                                        <Style.Triggers>
-                                                                            <DataTrigger Binding="{Binding Converter={StaticResource MoonGroupStatusConverter}}" Value="Clear">
-                                                                                <Setter Property="Foreground" Value="MediumSeaGreen" />
-                                                                            </DataTrigger>
-                                                                            <DataTrigger Binding="{Binding Converter={StaticResource MoonGroupStatusConverter}}" Value="Blocked">
-                                                                                <Setter Property="Foreground" Value="IndianRed" />
-                                                                            </DataTrigger>
-                                                                        </Style.Triggers>
-                                                                    </Style>
-                                                                </TextBlock.Style>
-                                                            </TextBlock>
-                                                        </StackPanel>
-                                                    </Expander.Header>
-                                                    <ItemsPresenter />
-                                                </Expander>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </GroupStyle.ContainerStyle>
-                        </GroupStyle>
+                                    <StackPanel Margin="22,4,0,10">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Style="{StaticResource MoonHeaderCell}" Text="Filter" Width="70" />
+                                            <TextBlock Style="{StaticResource MoonHeaderCell}" Text="Avoidance" Width="130" />
+                                            <TextBlock Style="{StaticResource MoonHeaderCell}" Text="Moon Sep" Width="85" />
+                                            <TextBlock Style="{StaticResource MoonHeaderCell}" Text="Required" Width="85" />
+                                            <TextBlock Style="{StaticResource MoonHeaderCell}" Text="Margin" Width="80" />
+                                            <TextBlock Style="{StaticResource MoonHeaderCell}" Text="Available Tonight" Width="240" />
+                                            <TextBlock Style="{StaticResource MoonHeaderCell}" Text="To Unblock" Width="160" />
+                                        </StackPanel>
 
-                        <!--  Level 1: target - collapsed, so exposure plan detail is hidden until asked for  -->
-                        <GroupStyle>
-                            <GroupStyle.ContainerStyle>
-                                <Style TargetType="{x:Type GroupItem}">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="{x:Type GroupItem}">
-                                                <Expander Margin="16,0,0,0" IsExpanded="False">
-                                                    <Expander.Header>
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
-                                                            <TextBlock
-                                                                Margin="10,0,0,0"
-                                                                VerticalAlignment="Center"
-                                                                Text="{Binding Converter={StaticResource MoonGroupSummaryConverter}}">
-                                                                <TextBlock.Style>
-                                                                    <Style TargetType="TextBlock">
-                                                                        <Style.Triggers>
-                                                                            <DataTrigger Binding="{Binding Converter={StaticResource MoonGroupStatusConverter}}" Value="Clear">
-                                                                                <Setter Property="Foreground" Value="MediumSeaGreen" />
-                                                                            </DataTrigger>
-                                                                            <DataTrigger Binding="{Binding Converter={StaticResource MoonGroupStatusConverter}}" Value="Blocked">
-                                                                                <Setter Property="Foreground" Value="IndianRed" />
-                                                                            </DataTrigger>
-                                                                            <DataTrigger Binding="{Binding Converter={StaticResource MoonGroupStatusConverter}}" Value="NotImagable">
-                                                                                <Setter Property="FontStyle" Value="Italic" />
-                                                                                <Setter Property="Opacity" Value="0.6" />
-                                                                            </DataTrigger>
-                                                                        </Style.Triggers>
-                                                                    </Style>
-                                                                </TextBlock.Style>
-                                                            </TextBlock>
-                                                        </StackPanel>
-                                                    </Expander.Header>
-                                                    <ItemsPresenter />
-                                                </Expander>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </GroupStyle.ContainerStyle>
-                        </GroupStyle>
-                    </DataGrid.GroupStyle>
-
-                    <DataGrid.ColumnHeaderStyle>
-                        <Style TargetType="{x:Type DataGridColumnHeader}">
-                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
-                            <Setter Property="BorderThickness" Value="0" />
-                            <Setter Property="MinHeight" Value="25" />
-                            <Setter Property="Margin" Value="5,3,5,3" />
-                            <Setter Property="FontWeight" Value="Bold" />
-                            <Setter Property="FontSize" Value="12" />
-                        </Style>
-                    </DataGrid.ColumnHeaderStyle>
-
-                    <DataGrid.CellStyle>
-                        <Style TargetType="DataGridCell">
-                            <Setter Property="BorderThickness" Value="0" />
-                            <Setter Property="MinHeight" Value="22" />
-                            <Setter Property="VerticalAlignment" Value="Center" />
-                            <Setter Property="Margin" Value="5,3,5,3" />
-                            <Setter Property="Background" Value="Transparent" />
-                        </Style>
-                    </DataGrid.CellStyle>
-
-                    <DataGrid.RowStyle>
-                        <Style TargetType="DataGridRow">
-                            <Setter Property="MinHeight" Value="22" />
-                            <Setter Property="Background" Value="Transparent" />
-                            <Setter Property="VerticalAlignment" Value="Center" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding HasTimeTonight}" Value="True">
-                                    <Setter Property="Foreground" Value="MediumSeaGreen" />
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding IsBlockedAllNight}" Value="True">
-                                    <Setter Property="Foreground" Value="IndianRed" />
-                                    <Setter Property="FontWeight" Value="Bold" />
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding NeverImagable}" Value="True">
-                                    <Setter Property="FontStyle" Value="Italic" />
-                                    <Setter Property="Opacity" Value="0.6" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </DataGrid.RowStyle>
-
-                    <DataGrid.Columns>
-                        <DataGridTextColumn
-                            Width="80"
-                            Binding="{Binding FilterName}"
-                            Header="Filter" />
-                        <DataGridTextColumn
-                            Width="110"
-                            Binding="{Binding AvoidanceSettings}"
-                            Header="Avoidance" />
-                        <DataGridTextColumn
-                            Width="60"
-                            Binding="{Binding MoonSeparationText}"
-                            Header="Moon Sep" />
-                        <DataGridTextColumn
-                            Width="60"
-                            Binding="{Binding RequiredSeparationText}"
-                            Header="Required" />
-                        <DataGridTextColumn
-                            Width="60"
-                            Binding="{Binding MarginText}"
-                            Header="Margin" />
-                        <DataGridTextColumn
-                            Width="2*"
-                            Binding="{Binding ClearWindowText}"
-                            Header="Available Tonight" />
-                        <DataGridTextColumn
-                            Width="130"
-                            Binding="{Binding SuggestionText}"
-                            Header="To Unblock" />
-                    </DataGrid.Columns>
-                </DataGrid>
+                                        <ItemsControl ItemsSource="{Binding Rows}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Margin="0,1,0,1" Orientation="Horizontal">
+                                                        <TextBlock Style="{StaticResource MoonRowCell}" Text="{Binding FilterName}" Width="70" />
+                                                        <TextBlock Style="{StaticResource MoonRowCell}" Text="{Binding AvoidanceSettings}" Width="130" />
+                                                        <TextBlock Style="{StaticResource MoonRowCell}" Text="{Binding MoonSeparationText}" Width="85" />
+                                                        <TextBlock Style="{StaticResource MoonRowCell}" Text="{Binding RequiredSeparationText}" Width="85" />
+                                                        <TextBlock Style="{StaticResource MoonRowCell}" Text="{Binding MarginText}" Width="80" />
+                                                        <TextBlock Style="{StaticResource MoonRowCell}" Text="{Binding ClearWindowText}" Width="240" />
+                                                        <TextBlock Style="{StaticResource MoonRowCell}" Text="{Binding SuggestionText}" Width="160" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Expander>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
             </StackPanel>
         </Border>
     </StackPanel>

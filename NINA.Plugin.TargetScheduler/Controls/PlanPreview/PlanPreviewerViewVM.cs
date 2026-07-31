@@ -21,10 +21,8 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
@@ -62,7 +60,7 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
             SelectedProfileId = profileService.ActiveProfile.Id.ToString();
             ProfileChoices = GetProfileChoices();
 
-            MoonAvoidanceRows = new AsyncObservableCollection<MoonAvoidanceAnalysisRow>();
+            MoonAvoidanceGroups = new AsyncObservableCollection<MoonAvoidanceTargetGroup>();
 
             ShowPlanPreview = true;
             ShowPlanPreviewResults = false;
@@ -576,27 +574,17 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
             }
         }
 
-        private AsyncObservableCollection<MoonAvoidanceAnalysisRow> moonAvoidanceRows;
-
-        public AsyncObservableCollection<MoonAvoidanceAnalysisRow> MoonAvoidanceRows {
-            get => moonAvoidanceRows;
-            set {
-                moonAvoidanceRows = value;
-                RaisePropertyChanged(nameof(MoonAvoidanceRows));
-            }
-        }
-
-        private ICollectionView moonAvoidanceView;
+        private AsyncObservableCollection<MoonAvoidanceTargetGroup> moonAvoidanceGroups;
 
         /// <summary>
-        /// The moon avoidance rows grouped project then target, so the per-plan detail sits under collapsible
-        /// dropdowns rather than as one long flat list.
+        /// The moon avoidance rows as one collapsible dropdown per target, so the per-plan detail is hidden
+        /// until asked for.
         /// </summary>
-        public ICollectionView MoonAvoidanceView {
-            get => moonAvoidanceView;
+        public AsyncObservableCollection<MoonAvoidanceTargetGroup> MoonAvoidanceGroups {
+            get => moonAvoidanceGroups;
             set {
-                moonAvoidanceView = value;
-                RaisePropertyChanged(nameof(MoonAvoidanceView));
+                moonAvoidanceGroups = value;
+                RaisePropertyChanged(nameof(MoonAvoidanceGroups));
             }
         }
 
@@ -671,20 +659,9 @@ namespace NINA.Plugin.TargetScheduler.Controls.PlanPreview {
 
                 _dispatcher.Invoke(DispatcherPriority.Normal, new Action(() => {
                     try {
-                        AsyncObservableCollection<MoonAvoidanceAnalysisRow> rows = new AsyncObservableCollection<MoonAvoidanceAnalysisRow>();
-                        analysis.Rows
-                            .OrderBy(r => r.ProjectName)
-                            .ThenBy(r => r.TargetName)
-                            .ThenBy(r => r.FilterName)
-                            .ForEach(r => rows.Add(r));
-
-                        MoonAvoidanceRows = rows;
-
-                        ICollectionView view = CollectionViewSource.GetDefaultView(rows);
-                        view.GroupDescriptions.Clear();
-                        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(MoonAvoidanceAnalysisRow.ProjectName)));
-                        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(MoonAvoidanceAnalysisRow.TargetName)));
-                        MoonAvoidanceView = view;
+                        AsyncObservableCollection<MoonAvoidanceTargetGroup> groups = new AsyncObservableCollection<MoonAvoidanceTargetGroup>();
+                        analysis.GetTargetGroups().ForEach(g => groups.Add(g));
+                        MoonAvoidanceGroups = groups;
 
                         MoonAvoidanceSummary = string.Join(Environment.NewLine,
                             analysis.NightSummary, analysis.MoonSummary, analysis.MoonFreeSummary, analysis.CoverageSummary);

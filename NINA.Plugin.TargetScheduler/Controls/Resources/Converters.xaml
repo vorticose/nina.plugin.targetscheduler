@@ -19,6 +19,4 @@
     <ac:StatusConverter x:Key="StatusConverter" />
     <ac:StatusMarkColorConverter x:Key="StatusMarkColorConverter" />
     <ac:GradingStatusConverter x:Key="GradingStatusConverter" />
-    <ac:MoonGroupSummaryConverter x:Key="MoonGroupSummaryConverter" />
-    <ac:MoonGroupStatusConverter x:Key="MoonGroupStatusConverter" />
 </ResourceDictionary>

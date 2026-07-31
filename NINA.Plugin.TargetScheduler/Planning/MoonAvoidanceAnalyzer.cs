@@ -171,22 +171,26 @@ namespace NINA.Plugin.TargetScheduler.Planning {
             TimeInterval astroNight = twilight.GetTwilightSpan(TwilightLevel.Nighttime);
             List<MoonCrossing> crossings = GetMoonCrossings(night.StartTime);
 
-            // The rise/set worth showing are the ones bounding this night: the last set/rise at or before the
-            // night ends, and the first at or after it starts.
+            // Show the first rise and the first set from the start of the night onward.  Falling outside the
+            // night is still worth reporting - when the moon is up all night, "sets 08:12" tells you it never
+            // gets out of the way, which is exactly what you want to know.
             DateTime? moonRise = crossings
-                .Where(c => c.IsRise && c.AtTime >= night.StartTime && c.AtTime <= night.EndTime)
+                .Where(c => c.IsRise && c.AtTime >= night.StartTime)
                 .Select(c => (DateTime?)c.AtTime).FirstOrDefault();
             DateTime? moonSet = crossings
-                .Where(c => !c.IsRise && c.AtTime >= night.StartTime && c.AtTime <= night.EndTime)
+                .Where(c => !c.IsRise && c.AtTime >= night.StartTime)
                 .Select(c => (DateTime?)c.AtTime).FirstOrDefault();
 
+            bool riseAfterNight = moonRise != null && moonRise > night.EndTime;
+            bool setAfterNight = moonSet != null && moonSet > night.EndTime;
+
             if (astroNight == null) {
-                return new MoonNightCircumstances(null, moonRise, moonSet, false, TimeSpan.Zero);
+                return new MoonNightCircumstances(null, moonRise, moonSet, riseAfterNight, setAfterNight, false, TimeSpan.Zero);
             }
 
             bool moonUpAtStart = AstroUtil.GetMoonAltitude(astroNight.StartTime, observerInfo) > 0;
             TimeSpan moonFree = CalculateMoonFreeTime(astroNight, moonUpAtStart, crossings);
-            return new MoonNightCircumstances(astroNight, moonRise, moonSet, moonUpAtStart, moonFree);
+            return new MoonNightCircumstances(astroNight, moonRise, moonSet, riseAfterNight, setAfterNight, moonUpAtStart, moonFree);
         }
 
         /// <summary>
@@ -320,6 +324,12 @@ namespace NINA.Plugin.TargetScheduler.Planning {
 
         public DateTime? MoonRise { get; private set; }
         public DateTime? MoonSet { get; private set; }
+
+        /// True when the rise/set falls after sunrise rather than during the night.
+        public bool MoonRiseAfterNight { get; private set; }
+
+        public bool MoonSetAfterNight { get; private set; }
+
         public bool MoonUpAtAstroNightStart { get; private set; }
 
         /// Time within astronomical night that the moon is below the horizon.
@@ -328,10 +338,12 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         public bool HasAstroNight => AstroNight != null;
 
         public MoonNightCircumstances(TimeInterval astroNight, DateTime? moonRise, DateTime? moonSet,
-            bool moonUpAtAstroNightStart, TimeSpan moonFreeTime) {
+            bool moonRiseAfterNight, bool moonSetAfterNight, bool moonUpAtAstroNightStart, TimeSpan moonFreeTime) {
             AstroNight = astroNight;
             MoonRise = moonRise;
             MoonSet = moonSet;
+            MoonRiseAfterNight = moonRiseAfterNight;
+            MoonSetAfterNight = moonSetAfterNight;
             MoonUpAtAstroNightStart = moonUpAtAstroNightStart;
             MoonFreeTime = moonFreeTime;
         }
@@ -425,8 +437,13 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                 StringBuilder sb = new StringBuilder();
                 sb.Append($"{MoonPhaseName} moon, {MoonIllumination * 100:F0}% illuminated, age {MoonAge:F1} days.");
 
-                if (MoonSet != null) { sb.Append($"  Sets {((DateTime)MoonSet):HH:mm}."); }
-                if (MoonRise != null) { sb.Append($"  Rises {((DateTime)MoonRise):HH:mm}."); }
+                if (MoonSet != null) {
+                    sb.Append($"  Sets {((DateTime)MoonSet):HH:mm}{(circumstances.MoonSetAfterNight ? " (after sunrise)" : string.Empty)}.");
+                }
+
+                if (MoonRise != null) {
+                    sb.Append($"  Rises {((DateTime)MoonRise):HH:mm}{(circumstances.MoonRiseAfterNight ? " (after sunrise)" : string.Empty)}.");
+                }
 
                 if (MoonUpAllNight) {
                     sb.Append($"  Up all night, peaking at {MoonMaximumAltitude:F0}°.");
@@ -471,6 +488,18 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         public string NightSummary =>
             $"Night of {Night.StartTime:yyyy-MM-dd}: {Night.StartTime:HH:mm} to {Night.EndTime:HH:mm} (sunset to sunrise).";
 
+        /// <summary>
+        /// The rows organized into one collapsible group per target.  Grouping by project as well is redundant
+        /// noise - in practice a project and its target usually carry the same name.
+        /// </summary>
+        public List<MoonAvoidanceTargetGroup> GetTargetGroups() {
+            return Rows
+                .GroupBy(r => r.GroupLabel)
+                .OrderBy(g => g.Key)
+                .Select(g => new MoonAvoidanceTargetGroup(g.Key, g.OrderBy(r => r.FilterName).ToList()))
+                .ToList();
+        }
+
         public string CoverageSummary {
             get {
                 if (Rows.Count == 0) { return "No active exposure plans to evaluate."; }
@@ -482,6 +511,44 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                     : $"{blocked} of {Rows.Count} active {plans} are blocked by moon avoidance for the whole night.";
             }
         }
+    }
+
+    /// <summary>
+    /// One target's exposure plans, for a single collapsible dropdown in the UI.  The header summary has to
+    /// stand on its own: the group is collapsed by default, so it's what tells you whether to open it.
+    /// </summary>
+    public class MoonAvoidanceTargetGroup {
+        public string Label { get; private set; }
+        public List<MoonAvoidanceAnalysisRow> Rows { get; private set; }
+
+        public MoonAvoidanceTargetGroup(string label, List<MoonAvoidanceAnalysisRow> rows) {
+            Label = label;
+            Rows = rows;
+        }
+
+        public bool IsNotImagable => Rows.Count > 0 && Rows.All(r => r.NeverImagable);
+
+        private List<MoonAvoidanceAnalysisRow> Imagable => Rows.Where(r => !r.NeverImagable).ToList();
+
+        public bool IsAllClear => !IsNotImagable && Imagable.Count > 0 && Imagable.All(r => r.HasTimeTonight);
+
+        public bool IsAllBlocked => !IsNotImagable && Imagable.Count > 0 && Imagable.All(r => r.IsBlockedAllNight);
+
+        public string SummaryText {
+            get {
+                if (Rows.Count == 0) { return string.Empty; }
+                if (IsNotImagable) { return "not imagable tonight"; }
+
+                int blocked = Rows.Count(r => r.IsBlockedAllNight);
+                string plans = Rows.Count == 1 ? "plan" : "plans";
+
+                if (blocked == 0) { return $"{Rows.Count} {plans}, all have time tonight"; }
+                if (blocked == Rows.Count) { return $"{Rows.Count} {plans}, all blocked all night"; }
+                return $"{Rows.Count} {plans}, {blocked} blocked all night";
+            }
+        }
+
+        public override string ToString() => $"{Label}: {SummaryText}";
     }
 
     /// <summary>
@@ -532,6 +599,15 @@ namespace NINA.Plugin.TargetScheduler.Planning {
             TimeSpan.FromSeconds(ClearWindows.Sum(w => w.Duration));
 
         public string TargetLabel => $"{ProjectName} / {TargetName}";
+
+        /// <summary>
+        /// Heading for this row's dropdown.  Projects are usually named after their single target, so the
+        /// project name is only worth showing when it differs.
+        /// </summary>
+        public string GroupLabel =>
+            string.Equals(ProjectName, TargetName, StringComparison.OrdinalIgnoreCase)
+                ? TargetName
+                : TargetLabel;
 
         /// <summary>
         /// The avoidance configuration in force, as it reads in the exposure template.
