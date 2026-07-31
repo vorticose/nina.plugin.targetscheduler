@@ -11,6 +11,7 @@ using NINA.Plugin.TargetScheduler.Test.Astrometry;
 using NINA.Profile.Interfaces;
 using NUnit.Framework;
 using System;
+using static NINA.Plugin.TargetScheduler.Test.TestTimeZone;
 
 namespace NINA.Plugin.TargetScheduler.Test.Planning {
 
@@ -44,7 +45,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
         [Test]
         public void testVisibilityVisibleFuture() {
             IProfile profile = GetProfileService();
-            DateTime atTime = new DateTime(2024, 10, 1, 20, 0, 0);
+            DateTime atTime = Et(2024, 10, 1, 20, 0, 0);
             DateTime sunset = atTime.AddHours(-2);
             DateTime sunrise = atTime.AddHours(9);
             IProject p1 = PlanMocks.GetMockPlanProject("P1", ProjectState.Active).Object;
@@ -63,13 +64,13 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             sut.Visibility(atTime, t1, twilightCircumstances, viz).Should().BeFalse();
             t1.Rejected.Should().BeTrue();
             t1.RejectedReason.Should().Be(Reasons.TargetNotYetVisible);
-            t1.StartTime.Should().Be(new DateTime(2024, 10, 2, 0, 21, 0));
+            t1.StartTime.Should().Be(Et(2024, 10, 2, 0, 21, 0));
         }
 
         [Test]
         public void testVisibilityMeridianWindow() {
             IProfile profile = GetProfileService();
-            DateTime atTime = new DateTime(2024, 12, 1, 20, 0, 0);
+            DateTime atTime = Et(2024, 12, 1, 20, 0, 0);
             DateTime sunset = atTime.AddHours(-2);
             DateTime sunrise = atTime.AddHours(10);
             IProject p1 = PlanMocks.GetMockPlanProject("P1", ProjectState.Active).Object;
@@ -89,13 +90,13 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             sut.Visibility(atTime, t1, twilightCircumstances, viz).Should().BeFalse();
             t1.Rejected.Should().BeTrue();
             t1.RejectedReason.Should().Be(Reasons.TargetBeforeMeridianWindow);
-            t1.StartTime.Should().BeCloseTo(new DateTime(2024, 12, 2, 0, 35, 8), 2.Seconds());
+            t1.StartTime.Should().BeCloseTo(Et(2024, 12, 2, 0, 35, 8), 2.Seconds());
         }
 
         [Test]
         public void testVisibilityMeridianFlipPause() {
             IProfile profile = GetProfileService(10, 10);
-            DateTime atTime = new DateTime(2025, 1, 1, 23, 0, 0);
+            DateTime atTime = Et(2025, 1, 1, 23, 0, 0);
             DateTime sunset = atTime.AddHours(-4);
             DateTime sunrise = atTime.AddHours(7);
             IProject p1 = PlanMocks.GetMockPlanProject("P1", ProjectState.Active).Object;
@@ -114,13 +115,13 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             sut.Visibility(atTime, t1, twilightCircumstances, viz).Should().BeFalse();
             t1.Rejected.Should().BeTrue();
             t1.RejectedReason.Should().Be(Reasons.TargetMeridianFlipClipped);
-            t1.StartTime.Should().BeCloseTo(new DateTime(2025, 1, 1, 23, 17, 22), 1.Seconds()); // start shifted until after MF unsafe zone
+            t1.StartTime.Should().BeCloseTo(Et(2025, 1, 1, 23, 17, 22), 1.Seconds()); // start shifted until after MF unsafe zone
         }
 
         [Test]
         public void testVisibilityMeridianFlipPauseMinimum() {
             IProfile profile = GetProfileService(15, 15);
-            DateTime atTime = new DateTime(2025, 5, 20, 1, 8, 0);
+            DateTime atTime = Et(2025, 5, 20, 1, 8, 0);
             DateTime sunset = atTime.AddHours(-6);
             DateTime sunrise = atTime.AddHours(6);
             IProject p1 = PlanMocks.GetMockPlanProject("P1", ProjectState.Active).Object;
@@ -152,7 +153,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             t1.RejectedReason.Should().Be(Reasons.TargetMeridianFlipClipped);
 
             // But it is available when it's safe after the MF
-            t1.StartTime.Should().BeCloseTo(new DateTime(2025, 5, 20, 2, 0, 30), TimeSpan.FromSeconds(1));
+            t1.StartTime.Should().BeCloseTo(Et(2025, 5, 20, 2, 0, 30), TimeSpan.FromSeconds(1));
         }
 
         [Test]
@@ -234,9 +235,9 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
         public void testVisibilityMaxAlt() {
             // M13 at 43.5°N, May 14 2026; approximate civil twilight times for that date/latitude
             IProfile profile = GetProfileService();
-            DateTime atTime = new DateTime(2026, 5, 14, 23, 0, 0);
-            DateTime sunset = new DateTime(2026, 5, 14, 21, 0, 0);
-            DateTime sunrise = new DateTime(2026, 5, 15, 5, 30, 0);
+            DateTime atTime = Et(2026, 5, 14, 23, 0, 0);
+            DateTime sunset = Et(2026, 5, 14, 21, 0, 0);
+            DateTime sunrise = Et(2026, 5, 15, 5, 30, 0);
 
             ObserverInfo observer = new ObserverInfo {
                 Latitude = 43.5,
@@ -262,10 +263,10 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             sut.Visibility(atTime, t1, twilightCircumstances, viz).Should().BeTrue();
             t1.Rejected.Should().BeFalse();
             t1.StartTime.Should().Be(atTime);
-            t1.EndTime.Should().Be(new DateTime(2026, 5, 15, 0, 20, 0));
+            t1.EndTime.Should().Be(Et(2026, 5, 15, 0, 20, 0));
 
             // But starting at midnight, the max alt clips below the min time
-            sut.Visibility(new DateTime(2026, 5, 15, 0, 0, 0), t1, twilightCircumstances, viz).Should().BeFalse();
+            sut.Visibility(Et(2026, 5, 15, 0, 0, 0), t1, twilightCircumstances, viz).Should().BeFalse();
             t1.Rejected.Should().BeTrue();
             t1.RejectedReason.Should().Be(Reasons.TargetMaxAltitude);
         }
@@ -507,7 +508,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
         [Test]
         public void testCheckFutureMaxAltitude() {
             IProfile profile = GetProfileService();
-            DateTime atTime = new DateTime(2024, 10, 15, 23, 0, 0);
+            DateTime atTime = Et(2024, 10, 15, 23, 0, 0);
             IProject p1 = PlanMocks.GetMockPlanProject("P1", ProjectState.Active).Object;
             p1.MaximumAltitude = 70;
             p1.MinimumTime = 30;
@@ -522,7 +523,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             // Above max altitude at start but descending and available later
             sut.CheckFuture(t1, GetMoonAvoidanceExpert("L"));
             t1.Rejected.Should().BeFalse();
-            t1.StartTime.Should().BeCloseTo(new DateTime(2024, 10, 16, 1, 57, 8), 1.Seconds());
+            t1.StartTime.Should().BeCloseTo(Et(2024, 10, 16, 1, 57, 8), 1.Seconds());
         }
 
         [Test]
@@ -575,7 +576,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
         [Test]
         public void testCheckFutureVizSpan() {
             IProfile profile = GetProfileService();
-            DateTime atTime = new DateTime(2025, 1, 1, 20, 0, 0);
+            DateTime atTime = Et(2025, 1, 1, 20, 0, 0);
 
             IProject p1 = PlanMocks.GetMockPlanProject("P1", ProjectState.Active).Object;
             p1.MinimumTime = 30;
@@ -594,7 +595,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
 
             // With the spiked horizon, visibility will be interrupted and have to jump spans.
             // Moon will reject until 00:05:00.  Visibility will resume at 00:04:24am
-            DateTime moonAcceptTime = new DateTime(2025, 1, 2, 0, 5, 0);
+            DateTime moonAcceptTime = Et(2025, 1, 2, 0, 5, 0);
             IMoonAvoidanceExpert moonExpert = GetMoonAvoidanceExpert(null, moonAcceptTime);
             sut.CheckFuture(t1, moonExpert);
             t1.Rejected.Should().BeFalse();
@@ -624,7 +625,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
         [Test]
         public void testCheckMaximumAltitude() {
             IProfile profile = GetProfileService();
-            DateTime atTime = new DateTime(2024, 10, 15, 23, 0, 0);
+            DateTime atTime = Et(2024, 10, 15, 23, 0, 0);
             DateTime sunset = atTime.AddHours(-5);
             DateTime sunrise = atTime.AddHours(7);
             ITarget t1 = PlanMocks.GetMockPlanTarget("T1", TestData.M31).Object;

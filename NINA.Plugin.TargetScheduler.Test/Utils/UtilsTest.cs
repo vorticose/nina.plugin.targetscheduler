@@ -103,9 +103,22 @@ namespace NINA.Plugin.TargetScheduler.Test.Util {
         [Test]
         public void TestFormatDateTimeFull() {
             Utils.FormatDateTimeFull(null).Should().Be("n/a");
-            Utils.FormatDateTimeFull(new DateTime(2025, 1, 2, 3, 4, 5)).Should().Be("2025-01-02 03:04:05 -05:00");
-            Utils.FormatDateTimeFull(new DateTime(2025, 6, 21, 3, 4, 5)).Should().Be("2025-06-21 03:04:05 -04:00");
-            Utils.FormatDateTimeFull(new DateTime(2025, 12, 31, 23, 59, 59)).Should().Be("2025-12-31 23:59:59 -05:00");
+
+            // The format renders the machine's UTC offset, so the offset has to be derived rather than
+            // hardcoded - otherwise this only passes in the zone it was written in. Both a standard-time and
+            // a daylight-time date are covered so a zone that observes DST exercises each.
+            AssertFormattedFull(new DateTime(2025, 1, 2, 3, 4, 5));
+            AssertFormattedFull(new DateTime(2025, 6, 21, 3, 4, 5));
+            AssertFormattedFull(new DateTime(2025, 12, 31, 23, 59, 59));
+        }
+
+        private void AssertFormattedFull(DateTime dateTime) {
+            string actual = Utils.FormatDateTimeFull(dateTime);
+
+            TimeSpan offset = TimeZoneInfo.Local.GetUtcOffset(dateTime);
+            string expectedOffset = $"{(offset < TimeSpan.Zero ? "-" : "+")}{Math.Abs(offset.Hours):00}:{Math.Abs(offset.Minutes):00}";
+
+            actual.Should().Be($"{dateTime:yyyy-MM-dd HH:mm:ss} {expectedOffset}");
         }
 
         [Test]

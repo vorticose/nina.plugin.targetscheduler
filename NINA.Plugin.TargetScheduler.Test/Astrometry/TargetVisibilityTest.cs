@@ -6,6 +6,7 @@ using NINA.Plugin.TargetScheduler.Planning;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using static NINA.Plugin.TargetScheduler.Test.TestTimeZone;
 
 namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
@@ -19,7 +20,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
         [Test]
         public void testBasic() {
-            DateTime dateTime = new DateTime(2024, 12, 1, 13, 0, 0);
+            DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
             TwilightCircumstances tc = new TwilightCircumstances(TestData.North_Mid_Lat, dateTime.Date);
             DateTime? sunset = tc.CivilTwilightStart;
             DateTime? sunrise = tc.CivilTwilightEnd;
@@ -29,7 +30,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             sut.TargetName.Should().Be("T1");
             sut.TargetId.Should().Be(1);
             sut.ImagingDate.Should().Be(dateTime);
-            sut.TransitTime.Should().BeCloseTo(new DateTime(2024, 12, 2, 1, 5, 8), TimeSpan.FromSeconds(1));
+            sut.TransitTime.Should().BeCloseTo(Et(2024, 12, 2, 1, 5, 8), TimeSpan.FromSeconds(1));
             sut.TargetPositions.Should().HaveCount(844);
 
             // Cached should give same result
@@ -37,7 +38,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             sut.TargetName.Should().Be("T1");
             sut.TargetId.Should().Be(1);
             sut.ImagingDate.Should().Be(dateTime);
-            sut.TransitTime.Should().BeCloseTo(new DateTime(2024, 12, 2, 1, 5, 8), TimeSpan.FromSeconds(1));
+            sut.TransitTime.Should().BeCloseTo(Et(2024, 12, 2, 1, 5, 8), TimeSpan.FromSeconds(1));
             sut.TargetPositions.Should().HaveCount(844);
         }
 
@@ -85,9 +86,9 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
         [Test]
         public void testNextVisibleInterval1() {
-            DateTime dateTime = new DateTime(2024, 12, 1, 13, 0, 0);
-            DateTime sunset = new DateTime(2024, 12, 1, 18, 0, 0);
-            DateTime sunrise = new DateTime(2024, 12, 2, 6, 0, 0);
+            DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
+            DateTime sunset = Et(2024, 12, 1, 18, 0, 0);
+            DateTime sunrise = Et(2024, 12, 2, 6, 0, 0);
             HorizonDefinition hd = new HorizonDefinition(0);
             TimeInterval imagingInterval = new TimeInterval(sunset, sunrise);
 
@@ -96,28 +97,28 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
             var viz = sut.NextVisibleInterval(sunset, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
-            viz.StartTime.Should().Be(new DateTime(2024, 12, 1, 19, 22, 0));
+            viz.StartTime.Should().Be(Et(2024, 12, 1, 19, 22, 0));
             viz.StopTime.Should().Be(sunrise);
 
-            dateTime = new DateTime(2024, 6, 1, 13, 0, 0);
-            sunset = new DateTime(2024, 6, 1, 21, 0, 0);
-            sunrise = new DateTime(2024, 6, 2, 5, 0, 0);
+            dateTime = Et(2024, 6, 1, 13, 0, 0);
+            sunset = Et(2024, 6, 1, 21, 0, 0);
+            sunrise = Et(2024, 6, 2, 5, 0, 0);
             sut = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.M42, dateTime, sunset, sunrise, 180);
             sut.ImagingPossible.Should().BeFalse();
         }
 
         [Test]
         public void testNextVisibleInterval2() {
-            DateTime dateTime = new DateTime(2024, 3, 1, 13, 0, 0);
-            DateTime sunset = new DateTime(2024, 3, 1, 20, 0, 0);
-            DateTime sunrise = new DateTime(2024, 3, 2, 6, 0, 0);
+            DateTime dateTime = Et(2024, 3, 1, 13, 0, 0);
+            DateTime sunset = Et(2024, 3, 1, 20, 0, 0);
+            DateTime sunrise = Et(2024, 3, 2, 6, 0, 0);
             HorizonDefinition hd = new HorizonDefinition(0);
             TimeInterval imagingInterval = new TimeInterval(sunset, sunrise);
 
             TargetVisibility sut = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.M42, dateTime, sunset, sunrise, 0, 60);
             sut.ImagingPossible.Should().BeTrue();
 
-            DateTime belowStartTime = new DateTime(2024, 3, 2, 0, 55, 0);
+            DateTime belowStartTime = Et(2024, 3, 2, 0, 55, 0);
             var viz = sut.NextVisibleInterval(sunset, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
             viz.StartTime.Should().Be(sunset);
@@ -130,9 +131,9 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
         [Test]
         public void testNextVisibleInterval3() {
-            DateTime dateTime = new DateTime(2024, 12, 1, 13, 0, 0);
-            DateTime sunset = new DateTime(2024, 12, 1, 19, 0, 0);
-            DateTime sunrise = new DateTime(2024, 12, 2, 6, 0, 0);
+            DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
+            DateTime sunset = Et(2024, 12, 1, 19, 0, 0);
+            DateTime sunrise = Et(2024, 12, 2, 6, 0, 0);
             HorizonDefinition hd = GetSpikedHorizon();
             TimeInterval imagingInterval = new TimeInterval(sunset, sunrise);
 
@@ -140,31 +141,31 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             sut.ImagingPossible.Should().BeTrue();
 
             // Test with spiked horizon
-            DateTime startTime = new DateTime(2024, 12, 1, 19, 21, 0);
+            DateTime startTime = Et(2024, 12, 1, 19, 21, 0);
             var viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
             viz.StartTime.Should().Be(startTime.AddMinutes(1));
-            viz.StopTime.Should().Be(new DateTime(2024, 12, 1, 19, 52, 0));
+            viz.StopTime.Should().Be(Et(2024, 12, 1, 19, 52, 0));
 
-            startTime = new DateTime(2024, 12, 1, 19, 22, 0);
+            startTime = Et(2024, 12, 1, 19, 22, 0);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
             viz.StartTime.Should().Be(startTime);
-            viz.StopTime.Should().Be(new DateTime(2024, 12, 1, 19, 52, 0));
+            viz.StopTime.Should().Be(Et(2024, 12, 1, 19, 52, 0));
 
-            startTime = new DateTime(2024, 12, 1, 19, 51, 0);
+            startTime = Et(2024, 12, 1, 19, 51, 0);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
             viz.StartTime.Should().Be(startTime);
-            viz.StopTime.Should().Be(new DateTime(2024, 12, 1, 19, 52, 0));
+            viz.StopTime.Should().Be(Et(2024, 12, 1, 19, 52, 0));
 
-            startTime = new DateTime(2024, 12, 2, 4, 59, 30);
+            startTime = Et(2024, 12, 2, 4, 59, 30);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
             viz.StartTime.Should().Be(startTime.AddSeconds(30));
             viz.StopTime.Should().Be(sunrise);
 
-            startTime = new DateTime(2024, 12, 2, 5, 0, 0);
+            startTime = Et(2024, 12, 2, 5, 0, 0);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
             viz.StartTime.Should().Be(startTime);
@@ -173,56 +174,56 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
         [Test]
         public void testNextVisibleInterval4() {
-            DateTime dateTime = new DateTime(2024, 12, 1, 13, 0, 0);
-            DateTime sunset = new DateTime(2024, 12, 1, 19, 0, 0);
-            DateTime sunrise = new DateTime(2024, 12, 2, 6, 0, 0);
+            DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
+            DateTime sunset = Et(2024, 12, 1, 19, 0, 0);
+            DateTime sunrise = Et(2024, 12, 2, 6, 0, 0);
             HorizonDefinition hd = GetSpikedHorizon();
 
             TargetVisibility sut = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.M42, dateTime, sunset, sunrise, 0, 120);
             sut.ImagingPossible.Should().BeTrue();
 
             // With different imaging intervals
-            DateTime startTime = new DateTime(2024, 12, 1, 19, 12, 0);
-            DateTime endInterval = new DateTime(2024, 12, 1, 19, 46, 0);
+            DateTime startTime = Et(2024, 12, 1, 19, 12, 0);
+            DateTime endInterval = Et(2024, 12, 1, 19, 46, 0);
             TimeInterval imagingInterval = new TimeInterval(sunset, endInterval);
             var viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
             viz.StartTime.Should().Be(startTime.AddMinutes(10));
             viz.StopTime.Should().Be(endInterval);
 
-            startTime = new DateTime(2024, 12, 1, 19, 12, 0);
-            endInterval = new DateTime(2024, 12, 1, 20, 0, 0);
+            startTime = Et(2024, 12, 1, 19, 12, 0);
+            endInterval = Et(2024, 12, 1, 20, 0, 0);
             imagingInterval = new TimeInterval(sunset, endInterval);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
             viz.StartTime.Should().Be(startTime.AddMinutes(10));
             viz.StopTime.Should().Be(startTime.AddMinutes(40));
 
-            startTime = new DateTime(2024, 12, 1, 20, 0, 0);
-            endInterval = new DateTime(2024, 12, 1, 21, 0, 0);
+            startTime = Et(2024, 12, 1, 20, 0, 0);
+            endInterval = Et(2024, 12, 1, 21, 0, 0);
             imagingInterval = new TimeInterval(sunset, endInterval);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeFalse();
 
-            endInterval = new DateTime(2024, 12, 1, 23, 0, 0);
+            endInterval = Et(2024, 12, 1, 23, 0, 0);
             imagingInterval = new TimeInterval(sunset, endInterval);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
-            viz.StartTime.Should().Be(new DateTime(2024, 12, 1, 22, 8, 0));
+            viz.StartTime.Should().Be(Et(2024, 12, 1, 22, 8, 0));
             viz.StopTime.Should().Be(endInterval);
 
             imagingInterval = new TimeInterval(sunset, sunrise);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd);
             viz.IsVisible.Should().BeTrue();
-            viz.StartTime.Should().Be(new DateTime(2024, 12, 1, 22, 8, 0));
-            viz.StopTime.Should().Be(new DateTime(2024, 12, 1, 23, 34, 0));
+            viz.StartTime.Should().Be(Et(2024, 12, 1, 22, 8, 0));
+            viz.StopTime.Should().Be(Et(2024, 12, 1, 23, 34, 0));
         }
 
         [Test]
         public void testNextVisibleIntervalMinTime() {
-            DateTime dateTime = new DateTime(2024, 12, 1, 13, 0, 0);
-            DateTime sunset = new DateTime(2024, 12, 1, 19, 0, 0);
-            DateTime sunrise = new DateTime(2024, 12, 2, 6, 0, 0);
+            DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
+            DateTime sunset = Et(2024, 12, 1, 19, 0, 0);
+            DateTime sunrise = Et(2024, 12, 2, 6, 0, 0);
             HorizonDefinition hd = GetSpikedHorizon();
             TimeInterval imagingInterval = new TimeInterval(sunset, sunrise);
 
@@ -239,43 +240,43 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             // Asking for more gets the next interval
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd, 31 * 60);
             viz.IsVisible.Should().BeTrue();
-            viz.StartTime.Should().Be(new DateTime(2024, 12, 1, 22, 8, 0));
-            viz.StopTime.Should().Be(new DateTime(2024, 12, 1, 23, 34, 0));
+            viz.StartTime.Should().Be(Et(2024, 12, 1, 22, 8, 0));
+            viz.StopTime.Should().Be(Et(2024, 12, 1, 23, 34, 0));
 
             // In the next, 1h is doable
-            startTime = new DateTime(2024, 12, 2, 0, 0, 0);
+            startTime = Et(2024, 12, 2, 0, 0, 0);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd, 60 * 60);
             viz.IsVisible.Should().BeTrue();
-            viz.StartTime.Should().Be(new DateTime(2024, 12, 2, 0, 18, 0));
-            viz.StopTime.Should().Be(new DateTime(2024, 12, 2, 1, 27, 0));
+            viz.StartTime.Should().Be(Et(2024, 12, 2, 0, 18, 0));
+            viz.StopTime.Should().Be(Et(2024, 12, 2, 1, 27, 0));
 
             // But 1.5h isn't available for the remainder of the night
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd, 90 * 60);
             viz.IsVisible.Should().BeFalse();
 
             // Find the last interval of 1h
-            startTime = new DateTime(2024, 12, 2, 4, 0, 0);
+            startTime = Et(2024, 12, 2, 4, 0, 0);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd, 60 * 60);
             viz.IsVisible.Should().BeTrue();
-            viz.StartTime.Should().Be(new DateTime(2024, 12, 2, 5, 0, 0));
-            viz.StopTime.Should().Be(new DateTime(2024, 12, 2, 6, 0, 0));
+            viz.StartTime.Should().Be(Et(2024, 12, 2, 5, 0, 0));
+            viz.StopTime.Should().Be(Et(2024, 12, 2, 6, 0, 0));
 
             // We can get 20m at end
-            startTime = new DateTime(2024, 12, 2, 5, 30, 0);
+            startTime = Et(2024, 12, 2, 5, 30, 0);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd, 20 * 60);
             viz.IsVisible.Should().BeTrue();
-            viz.StartTime.Should().Be(new DateTime(2024, 12, 2, 5, 30, 0));
-            viz.StopTime.Should().Be(new DateTime(2024, 12, 2, 6, 0, 0));
+            viz.StartTime.Should().Be(Et(2024, 12, 2, 5, 30, 0));
+            viz.StopTime.Should().Be(Et(2024, 12, 2, 6, 0, 0));
 
             // But not 35m
-            startTime = new DateTime(2024, 12, 2, 5, 30, 0);
+            startTime = Et(2024, 12, 2, 5, 30, 0);
             viz = sut.NextVisibleInterval(startTime, imagingInterval, hd, 35 * 60);
             viz.IsVisible.Should().BeFalse();
         }
 
         [Test]
         public void testCircumpolarAntiMeridian() {
-            DateTime dateTime = new DateTime(2024, 3, 1, 13, 0, 0);
+            DateTime dateTime = Et(2024, 3, 1, 13, 0, 0);
             DateTime sunset = dateTime.AddHours(4);
             DateTime sunrise = sunset.AddHours(14);
 
@@ -307,7 +308,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
         [Test]
         public void testCircumpolarMeridian() {
-            DateTime dateTime = new DateTime(2024, 12, 1, 13, 0, 0);
+            DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
             DateTime sunset = dateTime.AddHours(4);
             DateTime sunrise = sunset.AddHours(14);
 
@@ -315,7 +316,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             TargetVisibility sut = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.STAR_NORTH_CIRCP, dateTime, sunset, sunrise, 0, 600);
             sut.TargetPositions.Should().HaveCount(86);
             sut.ImagingPossible.Should().BeTrue();
-            sut.TransitTime.Should().BeCloseTo(new DateTime(2024, 12, 1, 19, 33, 48), TimeSpan.FromSeconds(1));
+            sut.TransitTime.Should().BeCloseTo(Et(2024, 12, 1, 19, 33, 48), TimeSpan.FromSeconds(1));
 
             DateTime atTime = dateTime.AddHours(6).AddMinutes(20).AddSeconds(10);
             int pos = sut.FindInterval(atTime, 0, 85);
@@ -330,7 +331,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
         [Test]
         public void testCircumpolarSameAzimuth() {
-            DateTime dateTime = new DateTime(2024, 2, 1, 13, 0, 0);
+            DateTime dateTime = Et(2024, 2, 1, 13, 0, 0);
             DateTime sunset = dateTime.AddHours(4);
             DateTime sunrise = sunset.AddHours(14);
 
@@ -339,7 +340,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             sut.TargetPositions.Should().HaveCount(86);
             sut.ImagingPossible.Should().BeTrue();
             sut.HasTransit().Should().BeTrue();
-            sut.TransitTime.Should().BeCloseTo(new DateTime(2024, 2, 1, 15, 32, 21), TimeSpan.FromSeconds(1));
+            sut.TransitTime.Should().BeCloseTo(Et(2024, 2, 1, 15, 32, 21), TimeSpan.FromSeconds(1));
 
             DateTime atTime = dateTime.AddHours(7).AddMinutes(50).AddSeconds(10);
             int pos = sut.FindInterval(atTime, 0, 85);
@@ -357,7 +358,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
         [Test]
         public void testGetAltitude() {
-            DateTime dateTime = new DateTime(2024, 10, 15, 0, 0, 0);
+            DateTime dateTime = Et(2024, 10, 15, 0, 0, 0);
             DateTime sunset = dateTime.AddHours(18);
             DateTime sunrise = sunset.AddHours(12);
             HorizonDefinition hd = new HorizonDefinition(0);
@@ -377,20 +378,20 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
         [Test]
         public void testIsApproximatelyNow() {
-            DateTime dateTime = new DateTime(2024, 12, 1, 13, 0, 0);
-            DateTime sunset = new DateTime(2024, 12, 1, 18, 0, 0);
+            DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
+            DateTime sunset = Et(2024, 12, 1, 18, 0, 0);
             DateTime sunrise = sunset.AddHours(12);
             HorizonDefinition hd = new HorizonDefinition(0);
             TimeInterval imagingInterval = new TimeInterval(sunset, sunrise);
 
             TargetVisibility sut = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.M42, dateTime, sunset, sunrise, 0, 10);
 
-            DateTime atTime = new DateTime(2024, 12, 1, 19, 20, 50);
+            DateTime atTime = Et(2024, 12, 1, 19, 20, 50);
             var viz = sut.NextVisibleInterval(atTime, imagingInterval, hd);
             DateTime startTime = (DateTime)viz.StartTime;
 
             // should be 'approximately now' within plus/minus 2x sample interval (10)
-            atTime = new DateTime(2024, 12, 1, 19, 20, 59);
+            atTime = Et(2024, 12, 1, 19, 20, 59);
             sut.IsApproximatelyNow(atTime, startTime).Should().BeFalse();
 
             for (int i = 0; i < 21; i++) {
@@ -404,7 +405,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
         [Test]
         public void testTransitTime() {
-            DateTime dateTime = new DateTime(2024, 2, 1, 13, 0, 0);
+            DateTime dateTime = Et(2024, 2, 1, 13, 0, 0);
             DateTime sunset = dateTime.AddHours(5);
             DateTime sunrise = sunset.AddHours(14);
 
@@ -412,9 +413,9 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             TargetVisibility sut = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.STAR_NORTH_CIRCP, dateTime, sunset, sunrise, 120);
             sut.TransitTime.Should().Be(TargetVisibility.TRANSIT_TIME_NA);
 
-            dateTime = new DateTime(2024, 12, 1, 13, 0, 0);
-            sunset = new DateTime(2024, 12, 1, 20, 0, 0);
-            sunrise = new DateTime(2024, 12, 2, 6, 0, 0);
+            dateTime = Et(2024, 12, 1, 13, 0, 0);
+            sunset = Et(2024, 12, 1, 20, 0, 0);
+            sunrise = Et(2024, 12, 2, 6, 0, 0);
 
             // Never rises, imaging not possible
             sut = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.STAR_SOUTH_CIRCP, dateTime, sunset, sunrise, 120);
@@ -422,22 +423,22 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
 
             // Normal south transit
             sut = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.M42, dateTime, sunset, sunrise, 120);
-            sut.TransitTime.Should().BeCloseTo(new DateTime(2024, 12, 2, 1, 5, 8), TimeSpan.FromSeconds(1));
+            sut.TransitTime.Should().BeCloseTo(Et(2024, 12, 2, 1, 5, 8), TimeSpan.FromSeconds(1));
 
             // Normal north transit
             // TODO:
 
-            dateTime = new DateTime(2024, 8, 1, 13, 0, 0);
-            sunset = new DateTime(2024, 8, 1, 20, 0, 0);
-            sunrise = new DateTime(2024, 8, 2, 6, 0, 0);
+            dateTime = Et(2024, 8, 1, 13, 0, 0);
+            sunset = Et(2024, 8, 1, 20, 0, 0);
+            sunrise = Et(2024, 8, 2, 6, 0, 0);
 
             // North circumpolar
             sut = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.STAR_NORTH_CIRCP, dateTime, sunset, sunrise, 120);
-            sut.TransitTime.Should().BeCloseTo(new DateTime(2024, 8, 2, 4, 31, 1), TimeSpan.FromSeconds(1));
+            sut.TransitTime.Should().BeCloseTo(Et(2024, 8, 2, 4, 31, 1), TimeSpan.FromSeconds(1));
 
             // South circumpolar
             sut = new TargetVisibility("T1", 1, TestData.South_Mid_Lat, TestData.STAR_SOUTH_CIRCP, dateTime, sunset, sunrise, 120);
-            sut.TransitTime.Should().BeCloseTo(new DateTime(2024, 8, 2, 4, 35, 1), TimeSpan.FromSeconds(1));
+            sut.TransitTime.Should().BeCloseTo(Et(2024, 8, 2, 4, 35, 1), TimeSpan.FromSeconds(1));
         }
 
         [Test]
@@ -466,20 +467,20 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             //   01:05 Dec 2  ~+49.6°  transit peak
             //   03:00 Dec 2  ~+41.3°  symmetric post-transit
             //   06:00 Dec 2  ~+10.0°
-            DateTime dateTime = new DateTime(2024, 12, 1, 13, 0, 0);
-            DateTime sunset = new DateTime(2024, 12, 1, 17, 30, 0);
-            DateTime sunrise = new DateTime(2024, 12, 2, 7, 0, 0);
+            DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
+            DateTime sunset = Et(2024, 12, 1, 17, 30, 0);
+            DateTime sunrise = Et(2024, 12, 2, 7, 0, 0);
 
             TargetVisibility sut = new TargetVisibility("M42", 1, TestData.North_Mid_Lat, TestData.M42, dateTime, sunset, sunrise, 0, 60);
             sut.ImagingPossible.Should().BeTrue();
 
             // Verify key altitudes used in case design
             AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, sunset).Should().BeLessThan(0);
-            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, new DateTime(2024, 12, 1, 20, 0, 0)).Should().BeApproximately(9.1, 1.5);
-            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, new DateTime(2024, 12, 1, 23, 0, 0)).Should().BeApproximately(41.3, 1.5);
-            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, new DateTime(2024, 12, 2, 1, 5, 0)).Should().BeApproximately(49.6, 1.0);
-            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, new DateTime(2024, 12, 2, 3, 0, 0)).Should().BeApproximately(41.3, 1.5);
-            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, new DateTime(2024, 12, 2, 6, 0, 0)).Should().BeApproximately(10.0, 1.5);
+            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, Et(2024, 12, 1, 20, 0, 0)).Should().BeApproximately(9.1, 1.5);
+            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, Et(2024, 12, 1, 23, 0, 0)).Should().BeApproximately(41.3, 1.5);
+            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, Et(2024, 12, 2, 1, 5, 0)).Should().BeApproximately(49.6, 1.0);
+            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, Et(2024, 12, 2, 3, 0, 0)).Should().BeApproximately(41.3, 1.5);
+            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, Et(2024, 12, 2, 6, 0, 0)).Should().BeApproximately(10.0, 1.5);
 
             TimeInterval result;
             ObserverInfo location = TestData.North_Mid_Lat;
@@ -490,36 +491,36 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             result.Should().BeNull();
 
             // Case 2: target never gets below maximumAltitude — 2h window around transit, max set to 40° (00:00 → 02:00)
-            DateTime from2 = new DateTime(2024, 12, 2, 0, 0, 0);
-            DateTime to2 = new DateTime(2024, 12, 2, 2, 0, 0);
+            DateTime from2 = Et(2024, 12, 2, 0, 0, 0);
+            DateTime to2 = Et(2024, 12, 2, 2, 0, 0);
             result = sut.MaximumAltitudeExceededInterval(from2, to2, location, coordinates, 40);
             result.StartTime.Should().Be(from2);
             result.EndTime.Should().Be(to2);
 
             // Case 3: target starts above maximumAltitude then drops below before span ends (01:00 → 06:00)
-            DateTime from3 = new DateTime(2024, 12, 2, 1, 0, 0);
-            DateTime to3 = new DateTime(2024, 12, 2, 6, 0, 0);
+            DateTime from3 = Et(2024, 12, 2, 1, 0, 0);
+            DateTime to3 = Et(2024, 12, 2, 6, 0, 0);
             result = sut.MaximumAltitudeExceededInterval(from3, to3, location, coordinates, 40);
             result.StartTime.Should().Be(from3);
-            result.EndTime.Should().Be(new DateTime(2024, 12, 2, 3, 10, 0));
+            result.EndTime.Should().Be(Et(2024, 12, 2, 3, 10, 0));
 
             // Case 4: target starts below maximumAltitude then exceeds it before span ends (20:00 → 01:00)
-            DateTime from4 = new DateTime(2024, 12, 1, 20, 0, 0);
-            DateTime to4 = new DateTime(2024, 12, 2, 1, 0, 0);
+            DateTime from4 = Et(2024, 12, 1, 20, 0, 0);
+            DateTime to4 = Et(2024, 12, 2, 1, 0, 0);
             result = sut.MaximumAltitudeExceededInterval(from4, to4, location, coordinates, 40);
-            result.StartTime.Should().Be(new DateTime(2024, 12, 1, 23, 1, 0));
+            result.StartTime.Should().Be(Et(2024, 12, 1, 23, 1, 0));
             result.EndTime.Should().Be(to4);
 
             // Case 5: transit CAN exceed max (49.6° > 45°) but the window ends before the target reaches 45°
             // M42 is ~31° at 22:00 — still well below 45°; it doesn't reach 45° until ~23:30
-            DateTime to5 = new DateTime(2024, 12, 1, 22, 0, 0);
+            DateTime to5 = Et(2024, 12, 1, 22, 0, 0);
             AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, to5).Should().BeApproximately(31.0, 1.0);
             result = sut.MaximumAltitudeExceededInterval(sunset, to5, location, coordinates, 45);
             result.Should().BeNull();
 
             // Case 6: window is entirely after the exceeded span — M42 drops below 45° by ~02:40; window 04:00 → sunrise
             // M42 is ~31° at 04:00 and still declining; never exceeds 45° in this late window
-            DateTime from6 = new DateTime(2024, 12, 2, 4, 0, 0);
+            DateTime from6 = Et(2024, 12, 2, 4, 0, 0);
             AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.M42, from6).Should().BeLessThan(45.0);
             result = sut.MaximumAltitudeExceededInterval(from6, sunrise, location, coordinates, 45);
             result.Should().BeNull();
@@ -540,18 +541,18 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             //   01:03 Oct 16  ~+61.5°  transit peak, azimuth ≈ 0°
             //   04:15 Oct 16  ~+56.6°  descending post-transit crossover
             //   06:30 Oct 16  ~+41.1°  at sunrise
-            DateTime dateTime = new DateTime(2024, 10, 15, 13, 0, 0);
-            DateTime sunset = new DateTime(2024, 10, 15, 18, 30, 0);
-            DateTime sunrise = new DateTime(2024, 10, 16, 6, 30, 0);
+            DateTime dateTime = Et(2024, 10, 15, 13, 0, 0);
+            DateTime sunset = Et(2024, 10, 15, 18, 30, 0);
+            DateTime sunrise = Et(2024, 10, 16, 6, 30, 0);
 
             TargetVisibility sut = new TargetVisibility("IC1805", 1, TestData.North_Mid_Lat, TestData.IC1805, dateTime, sunset, sunrise, 0, 60);
             sut.ImagingPossible.Should().BeTrue();
 
             // Verify key altitudes used in case design
             AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, sunset).Should().BeApproximately(20.1, 1.5);
-            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, new DateTime(2024, 10, 16, 0, 0, 0)).Should().BeApproximately(56.6, 1.5);
-            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, new DateTime(2024, 10, 16, 1, 3, 0)).Should().BeApproximately(61.5, 1.0);
-            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, new DateTime(2024, 10, 16, 4, 15, 0)).Should().BeApproximately(56.6, 1.5);
+            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, Et(2024, 10, 16, 0, 0, 0)).Should().BeApproximately(56.6, 1.5);
+            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, Et(2024, 10, 16, 1, 3, 0)).Should().BeApproximately(61.5, 1.0);
+            AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, Et(2024, 10, 16, 4, 15, 0)).Should().BeApproximately(56.6, 1.5);
             AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, sunrise).Should().BeApproximately(41.1, 1.5);
 
             TimeInterval result;
@@ -563,34 +564,34 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
             result.Should().BeNull();
 
             // Case 2: target never gets below maximumAltitude — 2h window around transit, max set to 50° (00:00 → 02:00)
-            DateTime from2 = new DateTime(2024, 10, 16, 0, 0, 0);
-            DateTime to2 = new DateTime(2024, 10, 16, 2, 0, 0);
+            DateTime from2 = Et(2024, 10, 16, 0, 0, 0);
+            DateTime to2 = Et(2024, 10, 16, 2, 0, 0);
             result = sut.MaximumAltitudeExceededInterval(from2, to2, location, coordinates, 50);
             result.StartTime.Should().Be(from2);
             result.EndTime.Should().Be(to2);
 
             // Case 3: target starts above maximumAltitude then drops below before span ends (01:00 → 06:30)
-            DateTime from3 = new DateTime(2024, 10, 16, 1, 0, 0);
+            DateTime from3 = Et(2024, 10, 16, 1, 0, 0);
             result = sut.MaximumAltitudeExceededInterval(from3, sunrise, location, coordinates, 50);
             result.StartTime.Should().Be(from3);
-            result.EndTime.Should().Be(new DateTime(2024, 10, 16, 5, 19, 0));
+            result.EndTime.Should().Be(Et(2024, 10, 16, 5, 19, 0));
 
             // Case 4: target starts below maximumAltitude then exceeds it before span ends (18:30 → 02:00)
-            DateTime to4 = new DateTime(2024, 10, 16, 2, 0, 0);
+            DateTime to4 = Et(2024, 10, 16, 2, 0, 0);
             result = sut.MaximumAltitudeExceededInterval(sunset, to4, location, coordinates, 50);
-            result.StartTime.Should().Be(new DateTime(2024, 10, 15, 22, 57, 0));
+            result.StartTime.Should().Be(Et(2024, 10, 15, 22, 57, 0));
             result.EndTime.Should().Be(to4);
 
             // Case 5: transit CAN exceed max (63.6° > 30°) but the window ends before the target reaches 30°
             // IC1805 is ~20.1° at sunset; it's still rising and stays below 30° through 19:30
-            DateTime to5 = new DateTime(2024, 10, 15, 19, 30, 0);
+            DateTime to5 = Et(2024, 10, 15, 19, 30, 0);
             AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, to5).Should().BeLessThan(30.0);
             result = sut.MaximumAltitudeExceededInterval(sunset, to5, location, coordinates, 30);
             result.Should().BeNull();
 
             // Case 6: window is entirely after the exceeded span — IC1805 drops below 50° at ~05:19; window 05:30 → sunrise
             // IC1805 is declining from ~50° toward 41.1° at sunrise; never exceeds 50° in this late window
-            DateTime from6 = new DateTime(2024, 10, 16, 5, 30, 0);
+            DateTime from6 = Et(2024, 10, 16, 5, 30, 0);
             AstrometryUtils.GetAltitude(TestData.North_Mid_Lat, TestData.IC1805, from6).Should().BeLessThan(50.0);
             result = sut.MaximumAltitudeExceededInterval(from6, sunrise, location, coordinates, 50);
             result.Should().BeNull();

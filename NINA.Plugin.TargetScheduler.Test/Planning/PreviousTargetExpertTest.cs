@@ -13,6 +13,7 @@ using NINA.Profile.Interfaces;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using static NINA.Plugin.TargetScheduler.Test.TestTimeZone;
 
 namespace NINA.Plugin.TargetScheduler.Test.Planning {
 
@@ -82,7 +83,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             Mock<IProfileService> profileMock = PlanMocks.GetMockProfileService(observerInfo);
             IWeatherDataMediator weatherData = PlanMocks.GetWeatherDataMediator(false, 0);
             IProfile profile = profileMock.Object.ActiveProfile;
-            DateTime atTime = new DateTime(2025, 2, 16, 22, 30, 0);
+            DateTime atTime = Et(2025, 2, 16, 22, 30, 0);
 
             Mock<IProject> pp = PlanMocks.GetMockPlanProject("pp1", ProjectState.Active);
             pp.SetupProperty(p => p.EnableGrader, true);
@@ -287,7 +288,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             Mock<IProfileService> profileMock = PlanMocks.GetMockProfileService(observerInfo);
             IWeatherDataMediator weatherData = PlanMocks.GetWeatherDataMediator(false, 0);
             IProfile profile = profileMock.Object.ActiveProfile;
-            DateTime atTime = new DateTime(2025, 2, 1, 19, 0, 0); // astro twilight
+            DateTime atTime = Et(2025, 2, 1, 19, 0, 0); // astro twilight
 
             Mock<IProject> pp = PlanMocks.GetMockPlanProject("pp1", ProjectState.Active);
             pp.SetupProperty(p => p.EnableGrader, true);

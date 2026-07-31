@@ -11,6 +11,7 @@ using NINA.Profile.Interfaces;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using static NINA.Plugin.TargetScheduler.Test.TestTimeZone;
 
 namespace NINA.Plugin.TargetScheduler.Test.Planning {
 
@@ -261,7 +262,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             PlanMocks.AddMockPlanTarget(pp1, pt);
             List<IProject> projects = PlanMocks.ProjectsList(pp1.Object);
 
-            DateTime atTime = new DateTime(2023, 12, 17, 19, 0, 0);
+            DateTime atTime = Et(2023, 12, 17, 19, 0, 0);
             projects = new Planner(atTime, profile, GetPrefs(), weatherData, false, false).FilterForVisibility(projects);
             Assert.That(projects, Is.Not.Null);
             projects.Count.Should().Be(1);
@@ -273,9 +274,9 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             pt1.Rejected.Should().BeFalse();
 
             TimeSpan precision = TimeSpan.FromSeconds(1);
-            pt1.StartTime.Should().BeCloseTo(new DateTime(2023, 12, 17, 18, 59, 59), precision);
-            pt1.CulminationTime.Should().BeCloseTo(new DateTime(2023, 12, 18, 0, 5, 45), precision);
-            pt1.EndTime.Should().BeCloseTo(new DateTime(2023, 12, 18, 5, 49, 19), precision);
+            pt1.StartTime.Should().BeCloseTo(Et(2023, 12, 17, 18, 59, 59), precision);
+            pt1.CulminationTime.Should().BeCloseTo(Et(2023, 12, 18, 0, 5, 45), precision);
+            pt1.EndTime.Should().BeCloseTo(Et(2023, 12, 18, 5, 49, 19), precision);
         }
 
         [Test]
@@ -292,7 +293,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             PlanMocks.AddMockPlanTarget(pp1, pt);
             List<IProject> projects = PlanMocks.ProjectsList(pp1.Object);
 
-            projects = new Planner(new DateTime(2023, 12, 17, 23, 36, 0), profile, GetPrefs(), weatherData, false, false).FilterForVisibility(projects);
+            projects = new Planner(Et(2023, 12, 17, 23, 36, 0), profile, GetPrefs(), weatherData, false, false).FilterForVisibility(projects);
             Assert.That(projects, Is.Not.Null);
             projects.Count.Should().Be(1);
 
@@ -303,9 +304,9 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             pt1.Rejected.Should().BeFalse();
 
             TimeSpan precision = TimeSpan.FromSeconds(1);
-            pt1.StartTime.Should().BeCloseTo(new DateTime(2023, 12, 17, 23, 35, 59), precision);
-            pt1.CulminationTime.Should().BeCloseTo(new DateTime(2023, 12, 18, 0, 5, 45), precision);
-            pt1.EndTime.Should().BeCloseTo(new DateTime(2023, 12, 18, 0, 35, 45), precision);
+            pt1.StartTime.Should().BeCloseTo(Et(2023, 12, 17, 23, 35, 59), precision);
+            pt1.CulminationTime.Should().BeCloseTo(Et(2023, 12, 18, 0, 5, 45), precision);
+            pt1.EndTime.Should().BeCloseTo(Et(2023, 12, 18, 0, 35, 45), precision);
         }
 
         [Test]
@@ -348,7 +349,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             PlanMocks.AddMockPlanTarget(pp1, pt);
             List<IProject> projects = PlanMocks.ProjectsList(pp1.Object);
 
-            projects = new Planner(new DateTime(2023, 12, 17, 20, 38, 0), profile, GetPrefs(), weatherData, false, false).FilterForVisibility(projects);
+            projects = new Planner(Et(2023, 12, 17, 20, 38, 0), profile, GetPrefs(), weatherData, false, false).FilterForVisibility(projects);
             Assert.That(projects, Is.Not.Null);
             projects.Count.Should().Be(1);
 
@@ -359,9 +360,9 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             pt1.Rejected.Should().BeFalse();
 
             TimeSpan precision = TimeSpan.FromSeconds(1);
-            pt1.StartTime.Should().BeCloseTo(new DateTime(2023, 12, 17, 20, 37, 57), precision);
-            pt1.CulminationTime.Should().BeCloseTo(new DateTime(2023, 12, 17, 21, 7, 18), precision);
-            pt1.EndTime.Should().BeCloseTo(new DateTime(2023, 12, 17, 21, 37, 18), precision);
+            pt1.StartTime.Should().BeCloseTo(Et(2023, 12, 17, 20, 37, 57), precision);
+            pt1.CulminationTime.Should().BeCloseTo(Et(2023, 12, 17, 21, 7, 18), precision);
+            pt1.EndTime.Should().BeCloseTo(Et(2023, 12, 17, 21, 37, 18), precision);
         }
 
         [Test]
@@ -443,7 +444,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             IWeatherDataMediator weatherData = PlanMocks.GetWeatherDataMediator(false, 0);
             List<IProject> projects = GetProjectForFilterTest();
 
-            projects = new Planner(new DateTime(2024, 12, 1, 17, 0, 0), profile, GetPrefs(), weatherData, false, false).FilterForTwilight(projects);
+            projects = new Planner(Et(2024, 12, 1, 17, 0, 0), profile, GetPrefs(), weatherData, false, false).FilterForTwilight(projects);
             Assert.That(projects, Is.Not.Null);
             projects.Count.Should().Be(1);
             projects[0].Rejected.Should().BeTrue();
@@ -464,7 +465,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             IWeatherDataMediator weatherData = PlanMocks.GetWeatherDataMediator(false, 0);
             List<IProject> projects = GetProjectForFilterTest();
 
-            projects = new Planner(new DateTime(2024, 12, 1, 18, 0, 0), profile, GetPrefs(), weatherData, false, false).FilterForTwilight(projects);
+            projects = new Planner(Et(2024, 12, 1, 18, 0, 0), profile, GetPrefs(), weatherData, false, false).FilterForTwilight(projects);
             Assert.That(projects, Is.Not.Null);
             projects.Count.Should().Be(1);
             projects[0].Rejected.Should().BeFalse();
@@ -484,7 +485,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
             IWeatherDataMediator weatherData = PlanMocks.GetWeatherDataMediator(false, 0);
             List<IProject> projects = GetProjectForFilterTest();
 
-            projects = new Planner(new DateTime(2024, 12, 1, 18, 20, 0), profile, GetPrefs(), weatherData, false, false).FilterForTwilight(projects);
+            projects = new Planner(Et(2024, 12, 1, 18, 20, 0), profile, GetPrefs(), weatherData, false, false).FilterForTwilight(projects);
             Assert.That(projects, Is.Not.Null);
             projects.Count.Should().Be(1);
             projects[0].Rejected.Should().BeFalse();
