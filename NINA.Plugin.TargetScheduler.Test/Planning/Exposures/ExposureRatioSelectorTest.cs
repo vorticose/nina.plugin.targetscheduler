@@ -463,13 +463,14 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
 
         [Test]
         public void testRaiseBDesiredMidDrain() {
-            // Session starts as even RGB; after 12 frames we raise B 10 -> 40.
-            // Remaining work should absorb the extra B without a 30-B binge
-            // while R/G still have leftovers.
+            // Session starts near-even RGB (B +1 so Desired counts are unequal
+            // and the leftover walk runs; equal Desired would dead-band to null).
+            // After 12 frames we raise B 11 -> 40. Extra B should interleave
+            // while R/G still have leftovers, not binge.
             List<IExposure> candidates = new List<IExposure> {
                 MakeExposure("R", 10, 0),
                 MakeExposure("G", 10, 0),
-                MakeExposure("B", 10, 0),
+                MakeExposure("B", 11, 0),
             };
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
