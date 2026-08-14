@@ -8,30 +8,50 @@ using System.Text;
 namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
     /// <summary>
-    /// Maintains proportional filter balance using a two-phase approach:
+    /// Maintains proportional filter balance by walking leftover weights so prefixes
+    /// stay mixed (not greedy blocks of the most-behind filter).
     ///
-    /// Phase 1 (catch-up): when any filter is >= 1 frame behind its ideal allocation,
-    /// greedy-select the most-behind filter. This closes large deficits quickly.
+    /// leftover_i = max(0, Desired_i - CompletionCount_i). A Bresenham / DDA
+    /// error-diffusion step (initial error = leftover/2) picks the next filter.
+    /// Leftovers 1 L, 24 R, 36 G, 64 B yield B,G,B,R,B,G,B... (about 0:2:3:5),
+    /// not a long B run.
     ///
-    /// Phase 2 (weighted rotation): when all filters are within 1 frame of ideal,
-    /// rotate proportional to desired counts using stable base weights. For L:300,
-    /// R:100, G:100, B:100 the cycle is L,L,L,R,G,B (weights [3,1,1,1]).
+    /// Empty-filter seed: if some eligible filters already have frames and another
+    /// still has CompletionCount == 0, emit that empty filter for
+    /// min(EMPTY_FILTER_SEED, Desired) picks (SEED=3), then resume the walk.
+    /// Cold start (all CompletionCount == 0) skips the seed and walks immediately.
     ///
-    /// Phase 2 does not oscillate back to Phase 1 because the rotation gives each
-    /// filter exactly its ideal share per cycle — no deficit accumulates.
+    /// FilterSwitchFrequency is a minimum run length: FSF==1 switches every pick,
+    /// FSF&gt;1 repeats the walk's choice that many times.
     ///
-    /// When FilterSwitchFrequency > 1, each weight slot becomes a block.
+    /// Equal desired counts keep the existing percentage dead band (defer to stock
+    /// rotation when spread is small). Unequal desired always uses the leftover walk.
     ///
-    /// Returns null for single candidates or equal desired counts (defers to stock
-    /// SmartExposureRotateManager).
+    /// Returns null when 0 or 1 eligible candidates remain, or every leftover is 0.
     /// </summary>
     public class ExposureRatioSelector {
-        private const int MAX_CYCLE_LENGTH = 50;
+
+        /// <summary>
+        /// Frames to take on a never-shot eligible filter before mixing it into the
+        /// leftover walk. Applies only when at least one other eligible filter already
+        /// has CompletionCount &gt; 0.
+        /// </summary>
+        public const int EMPTY_FILTER_SEED = 3;
 
         private ExposureCompletionHelper completionHelper;
         private int filterSwitchFrequency;
-        private int _weightedRotationIndex = 0;
-        private List<string> _lastCandidateFingerprint = null;
+
+        private List<string> walkNames = null;
+        private int[] remaining = null;
+        private int[] errors = null;
+        private int totalRemaining = 0;
+
+        private readonly HashSet<string> seededFilterNames = new HashSet<string>();
+        private string seedFilterName = null;
+        private int seedLeft = 0;
+
+        private string runFilterName = null;
+        private int runLeft = 0;
 
         public ExposureRatioSelector(ExposureCompletionHelper completionHelper, int filterSwitchFrequency = 1) {
             this.completionHelper = completionHelper;
@@ -39,10 +59,8 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         }
 
         /// <summary>
-        /// Select the next exposure using two-phase deficit correction.
-        /// Phase 1: any filter >= 1 frame behind -> greedy catch-up (most behind).
-        /// Phase 2: all within 1 frame -> clean weighted rotation.
-        /// Returns null for degenerate cases (0-1 candidates) or equal desired counts.
+        /// Select the next exposure from leftover weights (or the equal-desired dead
+        /// band). Returns null for degenerate cases (0-1 candidates, all complete).
         /// </summary>
         public IExposure Select(List<IExposure> candidates) {
             List<IExposure> eligible = candidates.Where(e => !e.Rejected && e.Desired > 0).ToList();
@@ -52,65 +70,34 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 return null;
             }
 
-            // Calculate ratios and frame deficits
-            var sb = new StringBuilder();
-            sb.Append("ratio selector candidates: ");
+            LogCandidates(eligible);
 
-            int totalFrames = 0;
-            int totalDesired = 0;
-
-            foreach (IExposure exposure in eligible) {
-                totalFrames += CompletionCount(exposure);
-                totalDesired += exposure.Desired;
-            }
-
-            double minRatio = double.MaxValue;
-            double maxRatio = double.MinValue;
-            double[] deficits = new double[eligible.Count];
-            double maxDeficit = double.MinValue;
-            int maxDeficitIndex = 0;
-
-            for (int i = 0; i < eligible.Count; i++) {
-                IExposure exposure = eligible[i];
-                double ratio = CompletionRatio(exposure);
-                double idealCount = totalDesired > 0 ? (double)totalFrames * exposure.Desired / totalDesired : 0;
-                deficits[i] = idealCount - CompletionCount(exposure);
-
-                bool isProvisional = completionHelper != null && completionHelper.IsProvisionalPercentComplete(exposure);
-                sb.Append($"{exposure.FilterName}={ratio:F3} ({exposure.Accepted}a/{exposure.Acquired}q/{exposure.Desired}d{(isProvisional ? " provisional" : "")}, deficit={deficits[i]:F1}), ");
-
-                if (ratio < minRatio) minRatio = ratio;
-                if (ratio > maxRatio) maxRatio = ratio;
-                if (deficits[i] > maxDeficit) {
-                    maxDeficit = deficits[i];
-                    maxDeficitIndex = i;
-                }
-            }
-
-            double spread = maxRatio - minRatio;
-            sb.Append($"spread={spread:F3}");
-            TSLogger.Debug(sb.ToString());
-
-            // --- Equal desired counts: use percentage-based dead band ---
             if (AllDesiredEqual(eligible)) {
-                if (spread >= 0.05) {
-                    IExposure mostBehind = eligible[maxDeficitIndex];
-                    TSLogger.Info($"ratio selector: {mostBehind.FilterName} is most behind (ratio={minRatio:F3}, spread={spread:F3}), prioritizing over default selection");
-                    return mostBehind;
-                }
-                TSLogger.Debug($"ratio selector: equal desired counts, within dead band ({spread:F3}), deferring to default selector");
+                return SelectEqualDesired(eligible);
+            }
+
+            if (eligible.All(e => Remaining(e) == 0)) {
+                TSLogger.Debug("ratio selector: all leftovers 0, skipping");
                 return null;
             }
 
-            // --- Phase 1: Greedy catch-up when any filter is >= 1 frame behind ---
-            if (maxDeficit >= 1.0) {
-                IExposure mostBehind = eligible[maxDeficitIndex];
-                TSLogger.Info($"ratio selector: catch-up -> {mostBehind.FilterName} (deficit={maxDeficit:F1})");
-                return mostBehind;
+            IExposure seeded = TrySeed(eligible);
+            if (seeded != null) {
+                return seeded;
             }
 
-            // --- Phase 2: Clean weighted rotation (base weights only) ---
-            IExposure selected = WeightedRotationSelect(eligible, deficits);
+            SyncWalk(eligible);
+
+            IExposure continued = ContinueRun(eligible);
+            if (continued != null) {
+                return continued;
+            }
+
+            IExposure selected = WalkPick(eligible);
+            if (selected != null && filterSwitchFrequency > 1) {
+                runFilterName = selected.FilterName;
+                runLeft = filterSwitchFrequency - 1;
+            }
             return selected;
         }
 
@@ -142,120 +129,152 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             return exposure.Accepted;
         }
 
-        /// <summary>
-        /// Calculate how many frames behind ideal a specific filter is.
-        /// Returns positive when behind, negative when ahead.
-        /// </summary>
-        internal double GetFrameDeficit(IExposure exposure, List<IExposure> eligible) {
-            int totalFrames = eligible.Sum(e => CompletionCount(e));
-            int totalDesired = eligible.Sum(e => e.Desired);
-            if (totalDesired == 0) return 0;
-
-            double idealCount = (double)totalFrames * exposure.Desired / totalDesired;
-            return idealCount - CompletionCount(exposure);
+        internal int Remaining(IExposure exposure) {
+            return Math.Max(0, exposure.Desired - CompletionCount(exposure));
         }
 
-        /// <summary>
-        /// Checks if all eligible candidates have the same Desired count.
-        /// </summary>
+        private IExposure SelectEqualDesired(List<IExposure> eligible) {
+            double minRatio = double.MaxValue;
+            double maxRatio = double.MinValue;
+            IExposure mostBehind = eligible[0];
+
+            foreach (IExposure exposure in eligible) {
+                double ratio = CompletionRatio(exposure);
+                if (ratio < minRatio) {
+                    minRatio = ratio;
+                    mostBehind = exposure;
+                }
+                if (ratio > maxRatio) maxRatio = ratio;
+            }
+
+            double spread = maxRatio - minRatio;
+            if (spread >= 0.05) {
+                TSLogger.Info($"ratio selector: {mostBehind.FilterName} is most behind (ratio={minRatio:F3}, spread={spread:F3}), prioritizing over default selection");
+                return mostBehind;
+            }
+
+            TSLogger.Debug($"ratio selector: equal desired counts, within dead band ({spread:F3}), deferring to default selector");
+            return null;
+        }
+
+        private IExposure TrySeed(List<IExposure> eligible) {
+            if (seedLeft > 0) {
+                IExposure current = FindByName(eligible, seedFilterName);
+                if (current != null && Remaining(current) > 0) {
+                    seedLeft--;
+                    TSLogger.Debug($"ratio selector: empty seed continue -> {current.FilterName} ({seedLeft} left)");
+                    return current;
+                }
+                seedLeft = 0;
+                seedFilterName = null;
+            }
+
+            bool anyEmpty = eligible.Any(e => CompletionCount(e) == 0);
+            bool anyStarted = eligible.Any(e => CompletionCount(e) > 0);
+            if (!anyEmpty || !anyStarted) {
+                return null;
+            }
+
+            foreach (IExposure exposure in eligible) {
+                if (CompletionCount(exposure) != 0) continue;
+                if (seededFilterNames.Contains(exposure.FilterName)) continue;
+
+                int seedCount = Math.Min(EMPTY_FILTER_SEED, exposure.Desired);
+                if (seedCount <= 0) continue;
+
+                seededFilterNames.Add(exposure.FilterName);
+                seedFilterName = exposure.FilterName;
+                seedLeft = seedCount - 1;
+                TSLogger.Info($"ratio selector: empty seed -> {exposure.FilterName} x{seedCount}");
+                return exposure;
+            }
+
+            return null;
+        }
+
+        private IExposure ContinueRun(List<IExposure> eligible) {
+            if (runLeft <= 0 || runFilterName == null) {
+                return null;
+            }
+
+            IExposure current = FindByName(eligible, runFilterName);
+            if (current == null || Remaining(current) <= 0) {
+                runLeft = 0;
+                runFilterName = null;
+                return null;
+            }
+
+            runLeft--;
+            TSLogger.Debug($"ratio selector: FSF run continue -> {current.FilterName} ({runLeft} left)");
+            return current;
+        }
+
+        private void SyncWalk(List<IExposure> eligible) {
+            List<string> names = eligible.Select(e => e.FilterName).ToList();
+            if (walkNames == null || !names.SequenceEqual(walkNames)) {
+                walkNames = names;
+                remaining = eligible.Select(e => Remaining(e)).ToArray();
+                errors = remaining.Select(r => r / 2).ToArray();
+                totalRemaining = remaining.Sum();
+                runFilterName = null;
+                runLeft = 0;
+                return;
+            }
+
+            for (int i = 0; i < eligible.Count; i++) {
+                remaining[i] = Remaining(eligible[i]);
+            }
+            totalRemaining = remaining.Sum();
+        }
+
+        private IExposure WalkPick(List<IExposure> eligible) {
+            if (totalRemaining <= 0 || walkNames == null) {
+                TSLogger.Debug("ratio selector: leftover walk has no remaining frames");
+                return null;
+            }
+
+            int bestIndex = -1;
+            int bestError = int.MinValue;
+
+            for (int i = 0; i < remaining.Length; i++) {
+                if (remaining[i] <= 0) continue;
+                errors[i] += remaining[i];
+                if (errors[i] > bestError) {
+                    bestError = errors[i];
+                    bestIndex = i;
+                }
+            }
+
+            if (bestIndex < 0) {
+                TSLogger.Debug("ratio selector: leftover walk found no positive remaining");
+                return null;
+            }
+
+            errors[bestIndex] -= totalRemaining;
+            IExposure selected = FindByName(eligible, walkNames[bestIndex]);
+            TSLogger.Debug($"ratio selector: leftover walk -> {selected?.FilterName}");
+            return selected;
+        }
+
         private bool AllDesiredEqual(List<IExposure> eligible) {
             int first = eligible[0].Desired;
             return eligible.All(e => e.Desired == first);
         }
 
-        /// <summary>
-        /// Selects the next filter from a clean weighted rotation cycle using base
-        /// weights only (no deficit adjustment). Called only when all filters are
-        /// within 1 frame of their ideal allocation, so the cycle maintains balance
-        /// without correction.
-        ///
-        /// For L:300, R:100, G:100, B:100:
-        ///   Base weights: [3, 1, 1, 1]
-        ///   Cycle: L,L,L,R,G,B (length 6)
-        ///
-        /// When FilterSwitchFrequency > 1, each weight is scaled by FSF for block shooting.
-        /// </summary>
-        internal IExposure WeightedRotationSelect(List<IExposure> eligible, double[] deficits) {
-            // Detect candidate set changes and reset cycle
-            var fingerprint = eligible.Select(e => e.FilterName).ToList();
-            bool candidatesChanged = _lastCandidateFingerprint == null || !fingerprint.SequenceEqual(_lastCandidateFingerprint);
-            if (candidatesChanged) {
-                _lastCandidateFingerprint = fingerprint;
-            }
-
-            // Build base weights normalized by GCD
-            int[] desiredCounts = eligible.Select(e => e.Desired).ToArray();
-            int gcd = desiredCounts.Aggregate(GCD);
-            if (gcd == 0) gcd = 1;
-            int[] baseWeights = desiredCounts.Select(w => w / gcd).ToArray();
-
-            // Cap base cycle length
-            int baseCycleLength = baseWeights.Sum();
-            if (baseCycleLength > MAX_CYCLE_LENGTH) {
-                int divisor = (baseCycleLength + MAX_CYCLE_LENGTH - 1) / MAX_CYCLE_LENGTH;
-                baseWeights = baseWeights.Select(w => Math.Max(1, w / divisor)).ToArray();
-            }
-
-            // Scale by FilterSwitchFrequency for block shooting
-            int[] blockWeights = baseWeights.Select(w => w * filterSwitchFrequency).ToArray();
-            int cycleLength = blockWeights.Sum();
-
-            // Reset index on candidate set change
-            if (candidatesChanged) {
-                _weightedRotationIndex = FindStartIndex(eligible, deficits, blockWeights);
-            }
-
-            // Map index to filter using cumulative sums
-            int pos = _weightedRotationIndex % cycleLength;
-            int cumulative = 0;
-            IExposure selected = eligible.Last();
-            for (int i = 0; i < eligible.Count; i++) {
-                cumulative += blockWeights[i];
-                if (pos < cumulative) {
-                    selected = eligible[i];
-                    break;
-                }
-            }
-
-            _weightedRotationIndex = (_weightedRotationIndex + 1) % cycleLength;
-
-            TSLogger.Debug($"ratio selector: weighted rotation -> {selected.FilterName}");
-
-            return selected;
+        private static IExposure FindByName(List<IExposure> eligible, string filterName) {
+            if (filterName == null) return null;
+            return eligible.FirstOrDefault(e => e.FilterName == filterName);
         }
 
-        /// <summary>
-        /// Finds the starting index in the weighted rotation cycle for the filter
-        /// with the largest frame deficit. Ensures the rotation begins with the
-        /// filter that needs frames most, rather than an arbitrary position.
-        /// </summary>
-        private int FindStartIndex(List<IExposure> eligible, double[] deficits, int[] blockWeights) {
-            // Find which filter has the largest deficit
-            double worstDeficit = double.MinValue;
-            int worstIndex = 0;
-            for (int i = 0; i < eligible.Count; i++) {
-                if (deficits[i] > worstDeficit) {
-                    worstDeficit = deficits[i];
-                    worstIndex = i;
-                }
+        private void LogCandidates(List<IExposure> eligible) {
+            var sb = new StringBuilder();
+            sb.Append("ratio selector candidates: ");
+            foreach (IExposure exposure in eligible) {
+                bool isProvisional = completionHelper != null && completionHelper.IsProvisionalPercentComplete(exposure);
+                int leftover = Remaining(exposure);
+                sb.Append($"{exposure.FilterName}={CompletionRatio(exposure):F3} ({exposure.Accepted}a/{exposure.Acquired}q/{exposure.Desired}d leftover={leftover}{(isProvisional ? " provisional" : "")}), ");
             }
-
-            // If no filter is behind, start at 0
-            if (worstDeficit <= 0) return 0;
-
-            // Map the filter index to its block start position in the cycle
-            int startPos = 0;
-            for (int i = 0; i < worstIndex; i++) {
-                startPos += blockWeights[i];
-            }
-            return startPos;
-        }
-
-        internal static int GCD(int a, int b) {
-            a = Math.Abs(a);
-            b = Math.Abs(b);
-            while (b != 0) { int t = b; b = a % b; a = t; }
-            return a;
+            TSLogger.Debug(sb.ToString());
         }
     }
 }
