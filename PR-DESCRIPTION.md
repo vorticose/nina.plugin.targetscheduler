@@ -7,6 +7,17 @@ throughout an imaging session by maintaining the proportions implied by the user
 desired counts. Uses a two-phase algorithm: greedy catch-up to close large deficits,
 then a stable GCD-normalized weighted rotation that matches the target ratio exactly.
 
+## Prototype (remaining-weight)
+
+On `feat/remaining-weight-ratio`, `ExposureRatioSelector` no longer uses greedy
+catch-up or GCD-weighted blocks. It walks leftover weights
+(`max(0, Desired - CompletionCount)`) with a Bresenham/DDA mixer so prefixes
+stay mixed (Iris mid-project will not emit 20 B in a row). Empty filters seed
+`min(3, Desired)` frames when other filters already have progress.
+`FilterSwitchFrequency` is a minimum run length, not a block scaler.
+Equal-desired dead band is unchanged. No new UI toggle. The two-phase section
+below describes the previous algorithm.
+
 ## Motivation
 
 Many astrophotographers want specific ratios between filters in their final stack.
