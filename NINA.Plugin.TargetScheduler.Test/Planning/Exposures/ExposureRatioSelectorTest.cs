@@ -4,6 +4,7 @@ using NINA.Plugin.TargetScheduler.Planning.Exposures;
 using NINA.Plugin.TargetScheduler.Planning.Interfaces;
 using NINA.Plugin.TargetScheduler.Test.Planning;
 using NUnit.Framework;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -366,6 +367,186 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             CountOf(picks, "L").Should().Be(7);
             CountOf(picks, "R").Should().Be(3);
             MaxConsecutive(picks).Should().BeLessOrEqualTo(3);
+        }
+
+        // ---------------------------------------------------------------------
+        // Drain simulations: increment Accepted after each pick so leftovers
+        // shrink the way a real night does. Frozen CollectPicks tests cannot
+        // see a filter drop out after its last needed frame.
+        // ---------------------------------------------------------------------
+
+        public class DrainCase {
+            public string Name { get; set; }
+            public (string Filter, int Desired, int Accepted)[] Start { get; set; }
+            public int MaxMixedRun { get; set; }
+
+            public override string ToString() {
+                return Name;
+            }
+        }
+
+        public static IEnumerable<DrainCase> DrainCases() {
+            yield return new DrainCase {
+                Name = "iris mid-project 80/50/62/90 from 79/26/26/26",
+                Start = new[] { ("L", 80, 79), ("R", 50, 26), ("G", 62, 26), ("B", 90, 26) },
+                MaxMixedRun = 3,
+            };
+            yield return new DrainCase {
+                Name = "cold start 3:1:1:1 (30/10/10/10)",
+                Start = new[] { ("L", 30, 0), ("R", 10, 0), ("G", 10, 0), ("B", 10, 0) },
+                MaxMixedRun = 3,
+            };
+            yield return new DrainCase {
+                Name = "classic 3:1:1:1 partway, B behind",
+                Start = new[] { ("L", 30, 15), ("R", 10, 5), ("G", 10, 5), ("B", 10, 2) },
+                MaxMixedRun = 3,
+            };
+            yield return new DrainCase {
+                Name = "SHO 1:1:3 O behind",
+                Start = new[] { ("Ha", 20, 10), ("S", 20, 10), ("O", 60, 5) },
+                MaxMixedRun = 5,
+            };
+            yield return new DrainCase {
+                Name = "lopsided 10:1",
+                Start = new[] { ("L", 20, 0), ("R", 2, 0) },
+                MaxMixedRun = 10,
+            };
+            yield return new DrainCase {
+                Name = "L overshot desired, RGB short",
+                Start = new[] { ("L", 80, 90), ("R", 50, 26), ("G", 62, 26), ("B", 90, 26) },
+                MaxMixedRun = 3,
+            };
+            yield return new DrainCase {
+                Name = "only B leftover after even RGB (raised B desired)",
+                Start = new[] { ("L", 30, 30), ("R", 30, 30), ("G", 30, 30), ("B", 90, 30) },
+                MaxMixedRun = 60,
+            };
+        }
+
+        [TestCaseSource(nameof(DrainCases))]
+        public void testDrainHitsDesiredNoOvershoot(DrainCase c) {
+            List<IExposure> candidates = c.Start
+                .Select(row => MakeExposure(row.Filter, row.Desired, row.Accepted))
+                .ToList();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            DrainResult drain = Drain(sut, candidates);
+
+            foreach (var row in c.Start) {
+                IExposure exposure = candidates.Single(e => e.FilterName == row.Filter);
+                int expected = Math.Max(row.Accepted, row.Desired);
+                exposure.Accepted.Should().Be(expected,
+                    $"{c.Name}: {exposure.FilterName} should land on max(start, Desired)={expected}");
+                if (row.Accepted <= row.Desired) {
+                    exposure.Accepted.Should().BeLessOrEqualTo(exposure.Desired,
+                        $"{c.Name}: {exposure.FilterName} overshot Desired");
+                }
+            }
+            drain.Overshoot.Should().BeFalse($"{c.Name}: a pick exceeded Desired");
+            drain.Picks.Should().NotBeEmpty($"{c.Name}: expected leftover work");
+            drain.MaxMixedRun.Should().BeLessOrEqualTo(c.MaxMixedRun,
+                $"{c.Name}: mixed-phase run of {drain.MaxMixedRun} (tail of last filter is ignored)");
+        }
+
+        [Test]
+        public void testIrisDrainFirstPicksAreMixed() {
+            List<IExposure> candidates = IrisMidProject();
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+            DrainResult drain = Drain(sut, candidates);
+
+            drain.Picks.Take(20).Should().Contain("R").And.Contain("G").And.Contain("B");
+            CountOf(drain.Picks.Take(20).ToList(), "L").Should().BeLessOrEqualTo(1);
+            CountOf(drain.Picks.Take(20).ToList(), "B")
+                .Should().BeGreaterThan(CountOf(drain.Picks.Take(20).ToList(), "R"));
+            candidates.Single(e => e.FilterName == "L").Accepted.Should().Be(80);
+        }
+
+        [Test]
+        public void testRaiseBDesiredMidDrain() {
+            // Session starts as even RGB; after 12 frames we raise B 10 -> 40.
+            // Remaining work should absorb the extra B without a 30-B binge
+            // while R/G still have leftovers.
+            List<IExposure> candidates = new List<IExposure> {
+                MakeExposure("R", 10, 0),
+                MakeExposure("G", 10, 0),
+                MakeExposure("B", 10, 0),
+            };
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+
+            List<string> before = Drain(sut, candidates, stopAfter: 12).Picks;
+            before.Should().HaveCount(12);
+
+            IExposure b = candidates.Single(e => e.FilterName == "B");
+            b.Desired = 40;
+
+            DrainResult after = Drain(sut, candidates);
+            after.Picks.Should().NotBeEmpty();
+            candidates.Single(e => e.FilterName == "R").Accepted.Should().Be(10);
+            candidates.Single(e => e.FilterName == "G").Accepted.Should().Be(10);
+            b.Accepted.Should().Be(40);
+            after.MaxMixedRun.Should().BeLessOrEqualTo(6, "extra B should interleave while R/G remain");
+        }
+
+        [Test]
+        public void testDrainEmptySeedThenMix() {
+            List<IExposure> candidates = new List<IExposure> {
+                MakeExposure("R", 20, 10),
+                MakeExposure("G", 20, 10),
+                MakeExposure("O", 12, 0),
+            };
+            ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
+            DrainResult drain = Drain(sut, candidates);
+
+            drain.Picks.Take(3).Should().OnlyContain(name => name == "O");
+            drain.Picks.Skip(3).Should().Contain("R").And.Contain("G");
+            candidates.Single(e => e.FilterName == "O").Accepted.Should().Be(12);
+            candidates.Single(e => e.FilterName == "R").Accepted.Should().Be(20);
+            candidates.Single(e => e.FilterName == "G").Accepted.Should().Be(20);
+        }
+
+        private class DrainResult {
+            public List<string> Picks { get; set; } = new List<string>();
+            public int MaxMixedRun { get; set; }
+            public bool Overshoot { get; set; }
+        }
+
+        /// <summary>
+        /// Pick until every filter is at Desired (or stopAfter picks). Increments
+        /// Accepted and Acquired on the chosen mock so leftovers shrink.
+        /// MaxMixedRun ignores the tail once only one filter still needs frames.
+        /// </summary>
+        private static DrainResult Drain(ExposureRatioSelector sut, List<IExposure> candidates, int stopAfter = 0) {
+            DrainResult result = new DrainResult();
+            int remaining() => candidates.Sum(e => Math.Max(0, e.Desired - e.Accepted));
+            int stillNeeded = remaining();
+            int cap = stopAfter > 0 ? stopAfter : stillNeeded + 5;
+            int mixedRun = 0;
+            string prev = null;
+
+            for (int i = 0; i < cap && remaining() > 0; i++) {
+                IExposure picked = sut.Select(candidates);
+                if (picked == null) {
+                    break;
+                }
+                if (picked.Accepted >= picked.Desired) {
+                    result.Overshoot = true;
+                    break;
+                }
+                picked.Accepted++;
+                picked.Acquired++;
+                result.Picks.Add(picked.FilterName);
+
+                int othersLeft = candidates
+                    .Where(e => e.FilterName != picked.FilterName)
+                    .Sum(e => Math.Max(0, e.Desired - e.Accepted));
+                if (picked.FilterName == prev) mixedRun++;
+                else mixedRun = 1;
+                prev = picked.FilterName;
+                if (othersLeft > 0 && mixedRun > result.MaxMixedRun) {
+                    result.MaxMixedRun = mixedRun;
+                }
+            }
+            return result;
         }
 
         private static List<IExposure> IrisMidProject() {
