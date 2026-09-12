@@ -43,6 +43,36 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning {
         }
 
         [Test]
+        public void testVisibilityWithoutMinimumTime_staysEligibleWhenLeftoverIsShort() {
+            // Planner Visibility skips a leftover shorter than MinimumTime and then rejects
+            // "not yet visible" / "not visible" even though the target is currently up.
+            // Insight passes requireMinimumTime: false so the eligible band does not lie.
+            IProfile profile = GetProfileService();
+            DateTime atTime = new DateTime(2025, 1, 1, 4, 30, 0);
+            DateTime sunset = new DateTime(2025, 1, 1, 17, 0, 0).AddDays(-1);
+            DateTime sunrise = new DateTime(2025, 1, 1, 7, 0, 0);
+            IProject p1 = PlanMocks.GetMockPlanProject("P1", ProjectState.Active).Object;
+            p1.MinimumTime = 180;
+            ITarget t1 = PlanMocks.GetMockPlanTarget("T1", TestData.M42).Object;
+            t1.StartTime = DateTime.MinValue;
+            t1.Project = p1;
+            IExposure e1 = PlanMocks.GetMockPlanExposure("L", 10, 0).Object;
+            e1.TwilightLevel = TwilightLevel.Nighttime;
+            t1.ExposurePlans.Add(e1);
+
+            TargetImagingExpert sut = new TargetImagingExpert(profile, GetPrefs(), false);
+            TargetVisibility viz = new TargetVisibility(t1, TestData.North_Mid_Lat, atTime, sunset, sunrise, 60);
+            TwilightCircumstances twilightCircumstances = TwilightCircumstances.AdjustTwilightCircumstances(TestData.North_Mid_Lat, atTime);
+
+            sut.Visibility(atTime, t1, twilightCircumstances, viz).Should().BeFalse();
+            t1.Rejected.Should().BeTrue();
+
+            sut.ClearRejections(t1);
+            sut.Visibility(atTime, t1, twilightCircumstances, viz, requireMinimumTime: false).Should().BeTrue();
+            t1.Rejected.Should().BeFalse();
+        }
+
+        [Test]
         public void testVisibilityVisibleFuture() {
             IProfile profile = GetProfileService();
             DateTime atTime = Et(2024, 10, 1, 20, 0, 0);

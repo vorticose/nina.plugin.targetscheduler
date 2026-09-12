@@ -110,7 +110,9 @@ namespace NINA.Plugin.TargetScheduler.Planning {
 
                         ITarget nextTarget = GetNextPossibleTarget(projects);
                         if (nextTarget != null) {
-                            // Wait for next possible target
+                            TSLogger.Debug($"VIS-WAIT at={Utils.FormatDateTimeFull(atTime)} until={Utils.FormatDateTimeFull(nextTarget.StartTime)} " +
+                                $"next={nextTarget.Project.Name}/{nextTarget.Name} end={Utils.FormatDateTimeFull(nextTarget.EndTime)} " +
+                                $"rejected={nextTarget.Rejected}/{nextTarget.RejectedReason}");
                             return new SchedulerPlan(atTime, projects, nextTarget, !checkCondition);
                         } else {
                             // Otherwise done for the night

@@ -7,6 +7,7 @@ using NINA.Plugin.TargetScheduler.Shared.Utility;
 using NINA.Plugin.TargetScheduler.Util;
 using NINA.Profile.Interfaces;
 using System;
+using System.Linq;
 
 namespace NINA.Plugin.TargetScheduler.Planning {
 
@@ -38,12 +39,12 @@ namespace NINA.Plugin.TargetScheduler.Planning {
             }
         }
 
-        public bool Visibility(DateTime atTime, ITarget target) {
+        public bool Visibility(DateTime atTime, ITarget target, bool requireMinimumTime = true) {
             TwilightCircumstances twilightCircumstances = TwilightCircumstances.AdjustTwilightCircumstances(observerInfo, atTime);
             TargetVisibility targetVisibility = new(target, observerInfo,
                 twilightCircumstances.OnDate, twilightCircumstances.Sunset, twilightCircumstances.Sunrise, targetVisibilitySampleInterval);
 
-            return Visibility(atTime, target, twilightCircumstances, targetVisibility);
+            return Visibility(atTime, target, twilightCircumstances, targetVisibility, requireMinimumTime);
         }
 
         /// <summary>
@@ -53,8 +54,14 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         /// <param name="target"></param>
         /// <param name="twilightCircumstances"></param>
         /// <param name="targetVisibility"></param>
+        /// <param name="requireMinimumTime">
+        /// When true (planner default), the next interval must be at least project MinimumTime long.
+        /// Short leftovers are skipped and the next later window is used, which rejects as
+        /// "not yet visible" even if the target is currently above the horizon. Insight eligibility
+        /// passes false so the band answers "is it up now" rather than "can I start a new block."
+        /// </param>
         /// <returns></returns>
-        public bool Visibility(DateTime atTime, ITarget target, TwilightCircumstances twilightCircumstances, TargetVisibility targetVisibility) {
+        public bool Visibility(DateTime atTime, ITarget target, TwilightCircumstances twilightCircumstances, TargetVisibility targetVisibility, bool requireMinimumTime = true) {
             if (target.Rejected) { return false; }
             IProject project = target.Project;
 
@@ -80,10 +87,12 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                 return false;
             }
 
-            // Determine the next time interval of visibility of at least the mimimum time
-            VisibilityDetermination viz = targetVisibility.NextVisibleInterval(atTime, twilightSpan, project.HorizonDefinition, project.MinimumTime * 60);
+            // Planner: next interval must fit MinimumTime. Insight: any current interval is enough.
+            VisibilityDetermination viz = requireMinimumTime
+                ? targetVisibility.NextVisibleInterval(atTime, twilightSpan, project.HorizonDefinition, project.MinimumTime * 60)
+                : targetVisibility.NextVisibleInterval(atTime, twilightSpan, project.HorizonDefinition);
             if (!viz.IsVisible) {
-                TSLogger.Trace($"Target not visible for rest of night {project.Name}/{target.Name} on {Utils.FormatDateTimeFull(atTime)} at latitude {observerInfo.Latitude}");
+                LogVisibility("no-interval", atTime, target, twilightSpan, targetVisibility, viz, requireMinimumTime, Reasons.TargetNotVisible);
                 SetRejected(target, Reasons.TargetNotVisible);
                 return false;
             }
@@ -166,6 +175,8 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                     reason = meridianClippedSpan != null ? Reasons.TargetBeforeMeridianWindow : Reasons.TargetMeridianFlipClipped;
                 }
 
+                LogVisibility($"future-start reason={reason} actualStart={Utils.FormatDateTimeFull(actualStart)}",
+                    atTime, target, twilightSpan, targetVisibility, viz, requireMinimumTime, reason);
                 SetRejected(target, reason);
                 return false;
             }
@@ -176,7 +187,30 @@ namespace NINA.Plugin.TargetScheduler.Planning {
             target.MinimumTimeSpanEnd = atTime.AddSeconds(project.MinimumTime * 60);
             target.BonusTimeSpanEnd = target.MinimumTimeSpanEnd;
             target.CulminationTime = targetTransitTime;
+            LogVisibility("ok", atTime, target, twilightSpan, targetVisibility, viz, requireMinimumTime, null);
             return true;
+        }
+
+        private void LogVisibility(string outcome, DateTime atTime, ITarget target, TimeInterval twilightSpan,
+                TargetVisibility targetVisibility, VisibilityDetermination viz, bool requireMinimumTime, string rejectReason) {
+            IProject project = target.Project;
+            double altNow = targetVisibility.GetAltitude(atTime);
+            double altStop = (viz != null && viz.IsVisible) ? targetVisibility.GetAltitude(viz.StopTime) : double.MinValue;
+            double durMin = (viz != null && viz.IsVisible) ? (viz.StopTime - viz.StartTime).TotalMinutes : 0;
+            string filters = string.Join(",", target.ExposurePlans.Select(e =>
+                $"{e.FilterName}:{e.TwilightLevel}/off={e.MinutesOffset}/rej={(e.Rejected ? e.RejectedReason : "ok")}"));
+            TSLogger.Debug(
+                $"VIS-DIAG {outcome} {project.Name}/{target.Name} at={Utils.FormatDateTimeFull(atTime)} " +
+                $"minTime={(requireMinimumTime ? project.MinimumTime : 0)}m horizon={project.HorizonDefinition} " +
+                $"twilight=[{Utils.FormatDateTimeFull(twilightSpan?.StartTime)}..{Utils.FormatDateTimeFull(twilightSpan?.EndTime)}] " +
+                $"viz=[{(viz != null && viz.IsVisible ? Utils.FormatDateTimeFull(viz.StartTime) : "n/a")}..{(viz != null && viz.IsVisible ? Utils.FormatDateTimeFull(viz.StopTime) : "n/a")}] " +
+                $"dur={durMin:0.0}m altNow={altNow:0.0} altStop={altStop:0.0} transit={Utils.FormatDateTimeFull(targetVisibility.TransitTime)} " +
+                $"reject={rejectReason ?? "none"} filters=[{filters}]");
+        }
+
+        private static string FormatFilterRejections(ITarget target) {
+            return "filters=[" + string.Join(",", target.ExposurePlans.Select(e =>
+                $"{e.FilterName}:{(e.Rejected ? e.RejectedReason : "ok")}")) + "]";
         }
 
         /// <summary>
@@ -330,6 +364,7 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         /// <param name="target"></param>
         public void CheckFuture(ITarget target, IMoonAvoidanceExpert moonExpert) {
             DateTime atTime = target.StartTime;
+            TSLogger.Debug($"VIS-FUTURE begin {target.Project.Name}/{target.Name} start={Utils.FormatDateTimeFull(atTime)} rejected={target.Rejected}/{target.RejectedReason}");
             TwilightCircumstances twilightCircumstances = TwilightCircumstances.AdjustTwilightCircumstances(observerInfo, atTime);
             TargetVisibility targetVisibility = new(target, observerInfo,
                 twilightCircumstances.OnDate, twilightCircumstances.Sunset, twilightCircumstances.Sunrise, targetVisibilitySampleInterval);
@@ -349,6 +384,7 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                     MoonAvoidanceFilter(atTime, target, moonExpert);
                     if (AllExposurePlansRejected(target)) {
                         SetRejected(target, Reasons.TargetMoonAvoidance);
+                        TSLogger.Debug($"VIS-FUTURE moon-reject {target.Name} at={Utils.FormatDateTimeFull(atTime)} {FormatFilterRejections(target)}");
                     }
                 }
 
@@ -356,23 +392,29 @@ namespace NINA.Plugin.TargetScheduler.Planning {
                     TwilightFilter(target, atTime, twilightCircumstances, twilightCircumstances.GetCurrentTwilightLevel(atTime));
                     if (AllExposurePlansRejected(target)) {
                         SetRejected(target, Reasons.FilterTwilight);
+                        TSLogger.Debug($"VIS-FUTURE twilight-reject {target.Name} at={Utils.FormatDateTimeFull(atTime)} level={twilightCircumstances.GetCurrentTwilightLevel(atTime)} {FormatFilterRejections(target)}");
                     }
                 }
 
                 // If not rejected, we've found a future time at which the target could be imaged
                 if (!target.Rejected) {
                     target.StartTime = atTime;
+                    TSLogger.Debug($"VIS-FUTURE found {target.Name} at={Utils.FormatDateTimeFull(atTime)} end={Utils.FormatDateTimeFull(target.EndTime)}");
                     return;
                 }
 
                 // Otherwise, advance time and check target visibility at the new time (which also rechecks max altitude)
+                DateTime before = atTime;
                 atTime = atTime.AddSeconds(targetFutureTestSampleInterval);
                 ClearRejections(target);
                 if (Visibility(atTime, target, twilightCircumstances, targetVisibility)) {
                     atTime = target.StartTime;
+                    TSLogger.Debug($"VIS-FUTURE step {target.Name} {Utils.FormatDateTimeFull(before)} -> viz-ok {Utils.FormatDateTimeFull(atTime)}");
                 } else if (VisibleLater(target)) {
                     atTime = target.StartTime;
+                    TSLogger.Debug($"VIS-FUTURE step {target.Name} {Utils.FormatDateTimeFull(before)} -> later {Utils.FormatDateTimeFull(atTime)} reason={target.RejectedReason}");
                 } else {
+                    TSLogger.Debug($"VIS-FUTURE exhausted {target.Name} after {Utils.FormatDateTimeFull(before)} reason={target.RejectedReason}");
                     return; // no more visibility this night
                 }
             }

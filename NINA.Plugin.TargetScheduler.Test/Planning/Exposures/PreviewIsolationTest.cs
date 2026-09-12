@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Moq;
 using NINA.Plugin.TargetScheduler.Database.Schema;
+using NINA.Plugin.TargetScheduler.Astrometry;
 using NINA.Plugin.TargetScheduler.Planning;
 using NINA.Plugin.TargetScheduler.Planning.Exposures;
 using NINA.Plugin.TargetScheduler.Planning.Interfaces;
@@ -24,6 +25,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         public void Setup() {
             DitherManagerCache.Clear();
             SmartExposureRotateCache.Clear();
+            TargetVisibilityCache.Clear();
         }
 
         [TearDown]
@@ -32,6 +34,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             if (PreviewContext.IsActive) { PreviewContext.Exit(); }
             DitherManagerCache.Clear();
             SmartExposureRotateCache.Clear();
+            TargetVisibilityCache.Clear();
         }
 
         /// <summary>
@@ -73,6 +76,35 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             }
 
             DitherManagerCache.Get("42").Should().BeSameAs(liveDm, "the live dither manager must survive the preview untouched");
+        }
+
+        /// <summary>
+        /// Visibility sample cache must not let a preview seed the live night. First-fill-wins
+        /// plus a key that omitted sunset/sunrise produced mid-night "not yet visible" holes
+        /// after a long-lived NINA process had run many previews.
+        /// </summary>
+        [Test]
+        public void testVisibilityCacheIsolatesPreviewFromLive() {
+            DateTime date = new DateTime(2024, 12, 1, 13, 0, 0);
+            DateTime sunset = new DateTime(2024, 12, 1, 19, 0, 0);
+            DateTime sunrise = new DateTime(2024, 12, 2, 6, 0, 0);
+            TargetVisibility liveTv = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.M42, date, sunset, sunrise, 0, 60);
+            TargetVisibilityCache.Put(liveTv, "veil-night");
+
+            PreviewContext.Enter();
+            try {
+                TargetVisibilityCache.Get("veil-night").Should().BeNull("a preview must start from an empty scratch visibility cache");
+
+                TargetVisibility previewTv = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.M42, date, sunset.AddHours(1), sunrise, 0, 60);
+                TargetVisibilityCache.Put(previewTv, "veil-night");
+                TargetVisibilityCache.Get("veil-night").Should().BeSameAs(previewTv);
+                previewTv.Sunset.Should().Be(sunset.AddHours(1));
+            } finally {
+                PreviewContext.Exit();
+            }
+
+            TargetVisibilityCache.Get("veil-night").Should().BeSameAs(liveTv, "live visibility samples must survive the preview untouched");
+            liveTv.Sunset.Should().Be(sunset);
         }
 
         /// <summary>Same isolation guarantee for the smart filter-rotation cache (the sibling bug).</summary>

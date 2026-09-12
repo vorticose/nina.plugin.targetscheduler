@@ -1,6 +1,7 @@
 ﻿using NINA.Astrometry;
 using NINA.Plugin.TargetScheduler.Planning;
 using NINA.Plugin.TargetScheduler.Planning.Interfaces;
+using NINA.Plugin.TargetScheduler.Shared.Utility;
 using NINA.Plugin.TargetScheduler.Util;
 using System;
 using System.Collections.Generic;
@@ -52,7 +53,7 @@ namespace NINA.Plugin.TargetScheduler.Astrometry {
                 throw new ArgumentException("no sunset/sunrise for this date/location");
             }
 
-            string cacheKey = GetCacheKey(targetId, observerInfo, coordinates, imagingDate, sampleInterval);
+            string cacheKey = GetCacheKey(targetId, observerInfo, coordinates, imagingDate, sunset, sunrise, sampleInterval);
             TargetVisibility cached = TargetVisibilityCache.Get(cacheKey);
 
             if (cached != null) {
@@ -362,13 +363,16 @@ namespace NINA.Plugin.TargetScheduler.Astrometry {
             return sb.ToString();
         }
 
-        private string GetCacheKey(int targetId, ObserverInfo observerInfo, Coordinates coordinates, DateTime imagingDate, int sampleInterval) {
+        private string GetCacheKey(int targetId, ObserverInfo observerInfo, Coordinates coordinates, DateTime imagingDate,
+                DateTime? sunset, DateTime? sunrise, int sampleInterval) {
             StringBuilder sb = new StringBuilder();
             sb.Append($"{targetId}_{imagingDate:yyyy-MM-dd-HH-mm-ss}_");
             sb.Append($"{observerInfo.Latitude.ToString("0.000000", CultureInfo.InvariantCulture)}_");
             sb.Append($"{observerInfo.Longitude.ToString("0.000000", CultureInfo.InvariantCulture)}_");
             sb.Append($"{coordinates.RADegrees.ToString("0.000000", CultureInfo.InvariantCulture)}_");
             sb.Append($"{coordinates.Dec.ToString("0.000000", CultureInfo.InvariantCulture)}_");
+            sb.Append($"{sunset:yyyy-MM-dd-HH-mm-ss}_");
+            sb.Append($"{sunrise:yyyy-MM-dd-HH-mm-ss}_");
             sb.Append(sampleInterval);
             return sb.ToString();
         }
@@ -411,18 +415,53 @@ namespace NINA.Plugin.TargetScheduler.Astrometry {
     public class TargetVisibilityCache {
         private static readonly TimeSpan ITEM_TIMEOUT = TimeSpan.FromHours(12);
         private static MemoryCache _cache = new MemoryCache("Scheduler TargetVisibility");
+        private static readonly object lockObj = new object();
+
+        // Preview isolation: same class of bug as TwilightCircumstancesCache. This cache is
+        // process-wide and MemoryCache.Add() only writes when the key is absent. A plan
+        // preview (or an earlier preview the same day) can seed the live night's samples
+        // from a short or wrong sunset/sunrise span; later Visibility calls then invent
+        // mid-night "not yet visible" holes. Route preview-thread traffic to thread-local
+        // scratch so a preview can never seed or clobber the live entry.
+        [ThreadStatic] private static Dictionary<string, TargetVisibility> previewCache;
+
+        public static bool IsPreviewContext => previewCache != null;
+
+        public static void EnterPreviewContext() {
+            previewCache = new Dictionary<string, TargetVisibility>();
+            TSLogger.Info("VIS-CACHE: entered PREVIEW visibility-cache context (live cache isolated)");
+        }
+
+        public static void ExitPreviewContext() {
+            previewCache = null;
+            TSLogger.Info("VIS-CACHE: exited PREVIEW visibility-cache context");
+        }
 
         public static TargetVisibility Get(string cacheKey) {
-            return (TargetVisibility)_cache.Get(cacheKey);
+            if (previewCache != null) {
+                return previewCache.TryGetValue(cacheKey, out var tv) ? tv : null;
+            }
+            lock (lockObj) {
+                return (TargetVisibility)_cache.Get(cacheKey);
+            }
         }
 
         public static void Put(TargetVisibility targetVisibility, string cacheKey) {
-            _cache.Add(cacheKey, targetVisibility, DateTime.Now.Add(ITEM_TIMEOUT));
+            if (previewCache != null) {
+                previewCache[cacheKey] = targetVisibility;
+                return;
+            }
+            lock (lockObj) {
+                _cache.Add(cacheKey, targetVisibility, DateTime.Now.Add(ITEM_TIMEOUT));
+            }
         }
 
         public static void Clear() {
-            _cache.Dispose();
-            _cache = new MemoryCache("Scheduler TargetVisibility");
+            previewCache = null;
+            lock (lockObj) {
+                _cache.Dispose();
+                _cache = new MemoryCache("Scheduler TargetVisibility");
+            }
         }
 
         private TargetVisibilityCache() {

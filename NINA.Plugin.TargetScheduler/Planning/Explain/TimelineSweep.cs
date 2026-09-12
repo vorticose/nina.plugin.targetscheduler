@@ -131,11 +131,17 @@ namespace NINA.Plugin.TargetScheduler.Planning.Explain {
         /// Faithful per-instant eligibility using the same experts the planner uses. Visibility covers
         /// rise/altitude/meridian; then the twilight + moon-avoidance exposure filters are applied and the
         /// target is ineligible if every exposure plan is rejected.
+        ///
+        /// MinimumTime is not required here. The planner uses it to decide whether it can *start a new
+        /// block*; applying that to the band paints "not yet visible" holes while the target is still up
+        /// (leftover in the current window shorter than MinimumTime). The band answers "could this
+        /// target be imaged at T," matching altitude/twilight/moon, not "would GetPlan open a new 30-min
+        /// commitment at T."
         /// </summary>
         private EligibilityState EvaluateAt(DateTime atTime, ITarget target, TargetImagingExpert expert,
                 IMoonAvoidanceExpert moonExpert, TwilightCircumstances twilight) {
             expert.ClearRejections(target);
-            expert.Visibility(atTime, target);
+            expert.Visibility(atTime, target, requireMinimumTime: false);
             if (target.Rejected) {
                 return new EligibilityState { Eligible = false, Reason = target.RejectedReason };
             }

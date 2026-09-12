@@ -19,6 +19,20 @@ namespace NINA.Plugin.TargetScheduler.Test.Astrometry {
         }
 
         [Test]
+        public void testCacheKeyIncludesSunsetSunrise() {
+            DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
+            DateTime sunsetEarly = Et(2024, 12, 1, 19, 0, 0);
+            DateTime sunsetLate = Et(2024, 12, 1, 20, 0, 0);
+            DateTime sunrise = Et(2024, 12, 2, 6, 0, 0);
+
+            TargetVisibility first = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.M42, dateTime, sunsetEarly, sunrise, 0, 60);
+            TargetVisibility second = new TargetVisibility("T1", 1, TestData.North_Mid_Lat, TestData.M42, dateTime, sunsetLate, sunrise, 0, 60);
+
+            first.Sunset.Should().Be(sunsetEarly);
+            second.Sunset.Should().Be(sunsetLate, "a different sunset/sunrise must not reuse the first fill's samples");
+        }
+
+        [Test]
         public void testBasic() {
             DateTime dateTime = Et(2024, 12, 1, 13, 0, 0);
             TwilightCircumstances tc = new TwilightCircumstances(TestData.North_Mid_Lat, dateTime.Date);
