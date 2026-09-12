@@ -20,12 +20,14 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         public void Setup() {
             DitherManagerCache.Clear();
             SmartExposureRotateCache.Clear();
+            ExposureRatioWalkCache.Clear();
         }
 
         [TearDown]
         public void TearDown() {
             DitherManagerCache.Clear();
             SmartExposureRotateCache.Clear();
+            ExposureRatioWalkCache.Clear();
         }
 
         [Test]

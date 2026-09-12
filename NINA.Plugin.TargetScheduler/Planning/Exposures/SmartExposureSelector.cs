@@ -19,7 +19,9 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
                 SmartExposureRotateManager = new SmartExposureRotateManager(target, project.FilterSwitchFrequency);
             }
             if (project.MaintainExposureRatio) {
-                ExposureRatioSelector = new ExposureRatioSelector(project.ExposureCompletionHelper, project.FilterSwitchFrequency);
+                // Walk state is resolved per target from ExposureRatioWalkCache at the point of use,
+                // never held here: this selector is rebuilt on every planning run.
+                ExposureRatioSelector = new ExposureRatioSelector(target, project.ExposureCompletionHelper, project.FilterSwitchFrequency);
             }
         }
 
@@ -73,11 +75,13 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
             if (exposure.PreDither) DitherManager.Reset();
             DitherManager.AddExposure(exposure);
             SmartExposureRotateManager?.ExposureTaken(exposure);
+            ExposureRatioSelector?.ExposureTaken(exposure);
         }
 
         public void TargetReset() {
             DitherManager.Reset();
             SmartExposureRotateManager?.Reset();
+            ExposureRatioSelector?.Reset();
         }
 
         private bool EqualScore(double benchmark, double check) {

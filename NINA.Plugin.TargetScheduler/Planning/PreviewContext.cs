@@ -17,6 +17,7 @@ namespace NINA.Plugin.TargetScheduler.Planning {
     ///   3. FilterCadence rows via UpdateFilterCadences → DATABASE corrupted (durable)
     ///   4. TwilightCircumstancesCache (static)  → twilight boundary corrupted for 12h
     ///   5. TargetVisibilityCache (static)       → altitude samples / StopTime corrupted for 12h
+    ///   (and ExposureRatioWalkCache, the exposure-ratio leftover walk, same shape as 2)
     ///
     /// Observed in the field: a plugin polling the TS API /preview endpoint every two
     /// minutes suppressed dithering for an entire session and previously caused
@@ -45,6 +46,7 @@ namespace NINA.Plugin.TargetScheduler.Planning {
             active = true;
             DitherManagerCache.EnterPreviewContext();
             SmartExposureRotateCache.EnterPreviewContext();
+            ExposureRatioWalkCache.EnterPreviewContext();
             TwilightCircumstancesCache.EnterPreviewContext();
             TargetVisibilityCache.EnterPreviewContext();
             TSLogger.Info("PREVIEW-ISOLATION: entered preview context — live dither/rotation/cadence/twilight/visibility state protected");
@@ -53,6 +55,7 @@ namespace NINA.Plugin.TargetScheduler.Planning {
         public static void Exit() {
             DitherManagerCache.ExitPreviewContext();
             SmartExposureRotateCache.ExitPreviewContext();
+            ExposureRatioWalkCache.ExitPreviewContext();
             TwilightCircumstancesCache.ExitPreviewContext();
             TargetVisibilityCache.ExitPreviewContext();
             active = false;

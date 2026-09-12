@@ -18,7 +18,9 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
         public BasicExposureSelector(IProject project, ITarget target, Target databaseTarget) : base(project, target) {
             FilterCadence = new FilterCadenceFactory().Generate(project, target, databaseTarget);
             if (project.MaintainExposureRatio) {
-                ExposureRatioSelector = new ExposureRatioSelector(project.ExposureCompletionHelper);
+                // Walk state is resolved per target from ExposureRatioWalkCache at the point of use,
+                // never held here: this selector is rebuilt on every planning run.
+                ExposureRatioSelector = new ExposureRatioSelector(target, project.ExposureCompletionHelper);
             }
         }
 
@@ -70,10 +72,12 @@ namespace NINA.Plugin.TargetScheduler.Planning.Exposures {
 
             if (exposure.PreDither) DitherManager.Reset();
             DitherManager.AddExposure(exposure);
+            ExposureRatioSelector?.ExposureTaken(exposure);
         }
 
         public void TargetReset() {
             DitherManager.Reset();
+            ExposureRatioSelector?.Reset();
         }
     }
 }

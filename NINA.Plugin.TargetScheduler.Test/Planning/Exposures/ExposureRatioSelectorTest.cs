@@ -13,13 +13,24 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
     [TestFixture]
     public class ExposureRatioSelectorTest {
 
+        // The walk's memory is external to the selector (production keeps it in
+        // ExposureRatioWalkCache keyed by target). Tests hand one in explicitly, so they
+        // never touch the shared cache. Every pick is Select followed by ExposureTaken,
+        // exactly the lifecycle the planner and preview emulator drive.
+        private ExposureRatioWalkState state;
+
+        [SetUp]
+        public void Setup() {
+            state = new ExposureRatioWalkState();
+        }
+
         [Test]
         public void testSingleCandidateReturnsNull() {
             List<IExposure> candidates = new List<IExposure>();
             candidates.Add(MakeExposure("L", 20, 5));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            sut.Select(candidates).Should().BeNull();
+            sut.Select(candidates, state).Should().BeNull();
         }
 
         [Test]
@@ -30,7 +41,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("R", 10, 0));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            sut.Select(candidates).Should().BeNull();
+            sut.Select(candidates, state).Should().BeNull();
         }
 
         [Test]
@@ -43,7 +54,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("G", 10, 8));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            IExposure result = sut.Select(candidates);
+            IExposure result = sut.Select(candidates, state);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("R");
         }
@@ -80,7 +91,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             rMock.SetupProperty(m => m.Acquired, 5);
             candidates.Add(rMock.Object);
 
-            IExposure result = sut.Select(candidates);
+            IExposure result = sut.Select(candidates, state);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("L");
         }
@@ -96,7 +107,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             sut.CompletionRatio(r).Should().BeApproximately(0.40, 0.0001);
 
             List<IExposure> candidates = new List<IExposure> { l, r };
-            IExposure result = sut.Select(candidates);
+            IExposure result = sut.Select(candidates, state);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("L");
         }
@@ -112,7 +123,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             sut.CompletionRatio(r).Should().BeApproximately(0.40, 0.0001);
 
             List<IExposure> candidates = new List<IExposure> { l, r };
-            IExposure result = sut.Select(candidates);
+            IExposure result = sut.Select(candidates, state);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("L");
         }
@@ -126,7 +137,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 100, 48));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            sut.Select(candidates).Should().BeNull();
+            sut.Select(candidates, state).Should().BeNull();
         }
 
         [Test]
@@ -136,7 +147,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 1000, 551));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            IExposure result = sut.Select(candidates);
+            IExposure result = sut.Select(candidates, state);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("L");
         }
@@ -148,7 +159,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 1000, 549));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            sut.Select(candidates).Should().BeNull();
+            sut.Select(candidates, state).Should().BeNull();
         }
 
         [Test]
@@ -160,7 +171,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("OIII", 20, 5));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            IExposure result = sut.Select(candidates);
+            IExposure result = sut.Select(candidates, state);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("OIII");
         }
@@ -174,7 +185,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 10, 5));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            IExposure result = sut.Select(candidates);
+            IExposure result = sut.Select(candidates, state);
             result.Should().NotBeNull();
             result.FilterName.Should().Be("L");
         }
@@ -189,7 +200,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 100, 50));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            List<string> picks = CollectPicks(sut, candidates, 6);
+            List<string> picks = CollectPicks(sut, state, candidates, 6);
             picks.Should().OnlyContain(name => name == "L" || name == "R" || name == "G" || name == "B");
             CountOf(picks, "L").Should().Be(3);
             CountOf(picks, "R").Should().Be(1);
@@ -205,7 +216,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             List<IExposure> candidates = IrisMidProject();
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
-            List<string> picks = CollectPicks(sut, candidates, 20);
+            List<string> picks = CollectPicks(sut, state, candidates, 20);
             picks.Should().HaveCount(20);
             picks.Should().OnlyContain(name => name == "L" || name == "R" || name == "G" || name == "B");
 
@@ -227,14 +238,14 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 100, 0));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            List<string> first6 = CollectPicks(sut, candidates, 6);
+            List<string> first6 = CollectPicks(sut, state, candidates, 6);
             CountOf(first6, "L").Should().BeInRange(2, 4);
             CountOf(first6, "R").Should().BeInRange(0, 2);
             CountOf(first6, "G").Should().BeInRange(0, 2);
             CountOf(first6, "B").Should().BeInRange(0, 2);
             first6.Distinct().Should().HaveCount(4);
 
-            List<string> first12 = first6.Concat(CollectPicks(sut, candidates, 6)).ToList();
+            List<string> first12 = first6.Concat(CollectPicks(sut, state, candidates, 6)).ToList();
             CountOf(first12, "L").Should().Be(6);
             CountOf(first12, "R").Should().Be(2);
             CountOf(first12, "G").Should().Be(2);
@@ -251,7 +262,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 90, 26));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            List<string> picks = CollectPicks(sut, candidates, 30);
+            List<string> picks = CollectPicks(sut, state, candidates, 30);
             picks.Should().NotContain("L");
             picks.Should().OnlyContain(name => name == "R" || name == "G" || name == "B");
         }
@@ -267,7 +278,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(b);
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            List<string> picks = CollectPicks(sut, candidates, 20);
+            List<string> picks = CollectPicks(sut, state, candidates, 20);
             picks.Should().OnlyContain(name => name == "R" || name == "G");
             CountOf(picks, "G").Should().BeGreaterThan(CountOf(picks, "R"));
         }
@@ -281,7 +292,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("O", 30, 0));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            List<string> picks = CollectPicks(sut, candidates, 12);
+            List<string> picks = CollectPicks(sut, state, candidates, 12);
 
             picks.Take(3).Should().OnlyContain(name => name == "O");
             picks.Skip(3).Should().Contain(name => name != "O");
@@ -296,7 +307,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("O", 2, 0));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            List<string> picks = CollectPicks(sut, candidates, 6);
+            List<string> picks = CollectPicks(sut, state, candidates, 6);
             picks.Take(2).Should().Equal("O", "O");
         }
 
@@ -309,7 +320,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 90, 90));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            sut.Select(candidates).Should().BeNull();
+            sut.Select(candidates, state).Should().BeNull();
         }
 
         [Test]
@@ -318,8 +329,8 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             ExposureRatioSelector a = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
             ExposureRatioSelector b = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
-            List<string> picksA = CollectPicks(a, candidates, 40);
-            List<string> picksB = CollectPicks(b, candidates, 40);
+            List<string> picksA = CollectPicks(a, new ExposureRatioWalkState(), candidates, 40);
+            List<string> picksB = CollectPicks(b, new ExposureRatioWalkState(), candidates, 40);
 
             picksA.Should().Equal(picksB);
             MaxConsecutive(picksA).Should().BeLessThan(15);
@@ -336,7 +347,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("B", 100, 0));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100), filterSwitchFrequency: 2);
-            List<string> picks = CollectPicks(sut, candidates, 12);
+            List<string> picks = CollectPicks(sut, state, candidates, 12);
 
             for (int i = 0; i < picks.Count; i += 2) {
                 picks[i].Should().Be(picks[i + 1], $"FSF=2 should emit pairs, mismatch at {i}");
@@ -351,7 +362,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         public void testFilterSwitchFrequency1SwitchesEveryPick() {
             List<IExposure> candidates = IrisMidProject();
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100), filterSwitchFrequency: 1);
-            List<string> picks = CollectPicks(sut, candidates, 12);
+            List<string> picks = CollectPicks(sut, state, candidates, 12);
             MaxConsecutive(picks).Should().BeLessOrEqualTo(2);
         }
 
@@ -363,7 +374,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             candidates.Add(MakeExposure("R", 3, 0));
 
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            List<string> picks = CollectPicks(sut, candidates, 10);
+            List<string> picks = CollectPicks(sut, state, candidates, 10);
             CountOf(picks, "L").Should().Be(7);
             CountOf(picks, "R").Should().Be(3);
             MaxConsecutive(picks).Should().BeLessOrEqualTo(3);
@@ -430,7 +441,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
                 .ToList();
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
-            DrainResult drain = Drain(sut, candidates);
+            DrainResult drain = Drain(sut, state, candidates);
 
             foreach (var row in c.Start) {
                 IExposure exposure = candidates.Single(e => e.FilterName == row.Filter);
@@ -452,7 +463,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         public void testIrisDrainFirstPicksAreMixed() {
             List<IExposure> candidates = IrisMidProject();
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            DrainResult drain = Drain(sut, candidates);
+            DrainResult drain = Drain(sut, state, candidates);
 
             drain.Picks.Take(20).Should().Contain("R").And.Contain("G").And.Contain("B");
             CountOf(drain.Picks.Take(20).ToList(), "L").Should().BeLessOrEqualTo(1);
@@ -474,13 +485,13 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             };
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
 
-            List<string> before = Drain(sut, candidates, stopAfter: 12).Picks;
+            List<string> before = Drain(sut, state, candidates, stopAfter: 12).Picks;
             before.Should().HaveCount(12);
 
             IExposure b = candidates.Single(e => e.FilterName == "B");
             b.Desired = 40;
 
-            DrainResult after = Drain(sut, candidates);
+            DrainResult after = Drain(sut, state, candidates);
             after.Picks.Should().NotBeEmpty();
             candidates.Single(e => e.FilterName == "R").Accepted.Should().Be(10);
             candidates.Single(e => e.FilterName == "G").Accepted.Should().Be(10);
@@ -496,7 +507,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
                 MakeExposure("O", 12, 0),
             };
             ExposureRatioSelector sut = new ExposureRatioSelector(new ExposureCompletionHelper(false, 0, 100));
-            DrainResult drain = Drain(sut, candidates);
+            DrainResult drain = Drain(sut, state, candidates);
 
             drain.Picks.Take(3).Should().OnlyContain(name => name == "O");
             drain.Picks.Skip(3).Should().Contain("R").And.Contain("G");
@@ -516,7 +527,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
         /// Accepted and Acquired on the chosen mock so leftovers shrink.
         /// MaxMixedRun ignores the tail once only one filter still needs frames.
         /// </summary>
-        private static DrainResult Drain(ExposureRatioSelector sut, List<IExposure> candidates, int stopAfter = 0) {
+        private static DrainResult Drain(ExposureRatioSelector sut, ExposureRatioWalkState state, List<IExposure> candidates, int stopAfter = 0) {
             DrainResult result = new DrainResult();
             int remaining() => candidates.Sum(e => Math.Max(0, e.Desired - e.Accepted));
             int stillNeeded = remaining();
@@ -525,7 +536,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             string prev = null;
 
             for (int i = 0; i < cap && remaining() > 0; i++) {
-                IExposure picked = sut.Select(candidates);
+                IExposure picked = sut.Select(candidates, state);
                 if (picked == null) {
                     break;
                 }
@@ -533,6 +544,7 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
                     result.Overshoot = true;
                     break;
                 }
+                sut.ExposureTaken(picked, state);
                 picked.Accepted++;
                 picked.Acquired++;
                 result.Picks.Add(picked.FilterName);
@@ -559,11 +571,12 @@ namespace NINA.Plugin.TargetScheduler.Test.Planning.Exposures {
             return candidates;
         }
 
-        private static List<string> CollectPicks(ExposureRatioSelector sut, List<IExposure> candidates, int count) {
+        private static List<string> CollectPicks(ExposureRatioSelector sut, ExposureRatioWalkState state, List<IExposure> candidates, int count) {
             List<string> picks = new List<string>(count);
             for (int i = 0; i < count; i++) {
-                IExposure result = sut.Select(candidates);
+                IExposure result = sut.Select(candidates, state);
                 result.Should().NotBeNull($"pick {i}");
+                sut.ExposureTaken(result, state);
                 picks.Add(result.FilterName);
             }
             return picks;

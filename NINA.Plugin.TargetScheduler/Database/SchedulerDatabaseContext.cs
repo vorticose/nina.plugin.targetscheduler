@@ -728,6 +728,7 @@ namespace NINA.Plugin.TargetScheduler.Database {
         public Project SaveProject(Project project) {
             TSLogger.Debug($"saving Project Id={project.Id} Name={project.Name}");
             project.Targets.ForEach(t => SmartExposureRotateCache.Remove(t));
+            project.Targets.ForEach(t => ExposureRatioWalkCache.Remove(t));
 
             using (var transaction = Database.BeginTransaction()) {
                 try {
@@ -831,6 +832,7 @@ namespace NINA.Plugin.TargetScheduler.Database {
         public Target SaveTarget(Target target, bool clearFilterCadenceItems = false) {
             TSLogger.Debug($"saving Target Id={target.Id} Name={target.Name}");
             SmartExposureRotateCache.Remove(target);
+            ExposureRatioWalkCache.Remove(target);
             ClearExistingOverrideExposureOrders(target.Id);
             if (clearFilterCadenceItems || target.FilterCadences.Count == 0) { ClearExistingFilterCadences(target.Id); }
 
